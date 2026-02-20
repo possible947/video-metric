@@ -1,0 +1,50 @@
+=== CODE GENERATION TASK ===
+File: src/cli_parser.c
+
+Purpose:
+Parse command‑line arguments for the `video_metric` utility and populate a `struct cli_options` instance.
+
+Context Summary:
+`cli_parser.c` is responsible for interpreting user input (flags, options, and their values) and converting them into a structured form that other modules (`main.c`, `ssim.c`, `vmaf.c`) can use. The parser must support short and long forms, validate required arguments, and set default values where applicable.
+
+Requirements:
+- Accept the following options:
+  - `-o`, `--output` (string, required)
+  - `-t`, `--test`   (string, required)
+  - `-s`, `--ssim`   (flag, optional)
+  - `-v`, `--vmaf`   (flag, optional)
+  - `-r`, `--resolution` (string, optional, values: `hd`, `4k`; default `hd`)
+  - `-n`, `--num_threads` (int, optional, default `0` meaning use FFmpeg default)
+- Handle combined short flags (e.g., `-sv`).
+- Ignore unknown flags but provide an error for unsupported or missing required arguments.
+- Set `opts.compute_ssim` and `opts.compute_vmaf` booleans appropriately.
+- Validate `resolution` value; if invalid, set an error.
+- Store parsed strings into dynamically allocated copies in `cli_options` (or point to `argv` if safe).
+- Return `0` on success, `-1` on failure (e.g., missing required options, invalid values).
+
+Functions to Implement:
+- `int parse_cli(int argc, char *argv[], struct cli_options *opts)` – fill `opts` based on `argv`.
+
+Input Data:
+- `argc`, `argv` from the shell.
+- Pre‑allocated `struct cli_options *opts` (fields defined in `cli_options.h`).
+
+Output Data:
+- Populated `opts` structure on success.
+- Error messages printed to `stderr` on failure.
+- Return code indicating success/failure.
+
+Pseudocode:
+```
+int parse_cli(int argc, char *argv[], struct cli_options *opts) {
+    initialize opts with defaults (resolution="hd", num_threads=0, flags=0, paths=NULL)
+    for i from 1 to argc-1:
+        if argv[i] starts with '--':
+            parse long option
+        else if argv[i] starts with '-':
+            parse short flags (loop over characters after '-')
+        else:
+            error("Unknown positional argument")
+    if required options missing -> error
+    return 0
+}

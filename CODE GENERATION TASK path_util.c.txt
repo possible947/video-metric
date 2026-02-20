@@ -1,0 +1,58 @@
+=== CODE GENERATION TASK ===
+File: src/path_util.c
+
+Purpose:
+Provide utilities to escape and quote file paths so they can be safely embedded into shell commands invoked by the utility.
+
+Context Summary:
+`path_util.c` is used by `main.c` and the metric calculation modules (`ssim.c`, `vmaf.c`) to transform arbitrary user‑supplied paths (which may contain spaces, quotes, UTF‑8, escape sequences, etc.) into a form that can be placed inside a double‑quoted string in a shell command.  
+The escaping rules follow POSIX shell conventions:  
+- Each `"` is escaped as `\"`.  
+- Each `\` is escaped as `\\`.  
+- Newlines, tabs, and other control characters are replaced with their octal escape sequences (e.g., `\012`).  
+- The entire resulting string is wrapped in double quotes.  
+
+Requirements:
+- Provide a single function  
+  `void escape_path(const char *src, char *dst, size_t dst_size)`  
+  which writes the escaped path into `dst`.  
+- The function must not overflow `dst`; it should truncate if necessary but preserve a null terminator.  
+- Handle `NULL` or empty input gracefully (output empty quoted string `""`).  
+- Support UTF‑8 characters by copying them unchanged (they are not escaped).  
+- Use only C standard library functions (`strlen`, `strcpy`, etc.).  
+
+Input Data:
+- `src` – original path string from the user.  
+- `dst` – buffer provided by the caller.  
+- `dst_size` – size of the destination buffer in bytes.  
+
+Output Data:
+- `dst` – escaped and quoted string ready for shell insertion.  
+
+Pseudocode:
+```
+void escape_path(const char *src, char *dst, size_t dst_size) {
+    if (!dst || dst_size == 0) return;
+    size_t pos = 0;
+    // start with opening quote
+    if (pos + 1 < dst_size) dst[pos++] = '"';
+    for each byte c in src:
+        if c == '\\' or c == '"' :
+            // escape character
+            if (pos + 2 >= dst_size) break;
+            dst[pos++] = '\\';
+            dst[pos++] = c;
+        else if is control character (c < 0x20 or c == 0x7f):
+            // octal escape
+            if (pos + 4 >= dst_size) break;
+            dst[pos++] = '\\';
+            dst[pos++] = octal digit of c
+            dst[pos++] = octal digit
+            dst[pos++] = octal digit
+        else:
+            if (pos + 1 >= dst_size) break;
+            dst[pos++] = c;
+    // closing quote
+    if (pos + 1 < dst_size) dst[pos++] = '"';
+    dst[pos] = '\0';
+}

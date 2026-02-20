@@ -1,0 +1,67 @@
+=== CODE GENERATION TASK ===
+File: src/env_check.c
+
+Purpose:
+Verify the runtime environment before any metric calculations: check for local FFmpeg, required filters, VMAF model files, and perform a test VMAF launch to confirm functionality.
+
+Context Summary:
+`env_check.c` is invoked from `main.c` early in the program. It must populate a status string of the form:
+```
+ffmpeg: <status>, ssim: <status>, vmaf: <status>
+```
+where each `<status>` is either `ok` or `fail`.  
+The function should also return a non‑zero code if any of the required components are missing, causing `main.c` to exit immediately.
+
+Requirements:
+- Detect the local `ffmpeg` binary in the same directory as the executable (`video_metric`).  
+  Use `stat`/`access` to confirm existence and execute permission.
+- Test if the `ffmpeg` binary supports the `ssim` filter by running:
+  ```
+  ffmpeg -filters | grep -q "ssim"
+  ```
+  Capture exit status; `0` → `ok`, else `fail`.
+- Test if the `ffmpeg` binary supports the `libvmaf` filter by running:
+  ```
+  ffmpeg -filters | grep -q "libvmaf"
+```
+  Capture exit status.
+- Verify that the model files exist:
+  - `model/vmaf_v0.6.1.json` (HD)
+  - `model/vmaf_4k_v0.6.1.json` (4K)
+- Perform a minimal test VMAF run (no real input needed) by invoking:
+  ```
+  ffmpeg -f lavfi -i testsrc=duration=1:size=128x128:rate=30 \
+         -f lavfi -i testsrc=duration=1:size=128x128:rate=30 \
+         -filter_complex "[0:v][1:v]libvmaf=log_path=/dev/null" \
+         -f null -
+  ```
+  Capture exit status; if non‑zero, mark VMAF test as `fail`.
+- Build the status string in a buffer provided by the caller (`char *status_buf, size_t bufsize`).  
+  Ensure the string is null‑terminated and does not overflow.
+- Return `0` if all checks pass, otherwise return `-1`.
+
+Input Data:
+- Buffer to write status line.
+- Path to the executable (obtained via `argv[0]` or `readlink("/proc/self/exe")`).
+
+Output Data:
+- Status string in `status_buf`.
+- Return code indicating success or failure.
+
+Pseudocode:
+```
+int check_environment(char *status_buf, size_t bufsize) {
+    bool ok_ffmpeg = check_executable("ffmpeg");
+    bool ok_ssim  = run_cmd("ffmpeg -filters | grep -q ssim");
+    bool ok_vmaf  = run_cmd("ffmpeg -filters | grep -q libvmaf");
+    bool ok_model_hd  = file_exists("model/vmaf_v0.6.1.json");
+    bool ok_model_4k  = file_exists("model/vmaf_4k_v0.6.1.json");
+    bool ok_test_vmaf = run_cmd("ffmpeg ... minimal test ...");
+
+    snprintf(status_buf, bufsize,
+             "ffmpeg: %s, ssim: %s, vmaf: %s",
+             ok_ffmpeg ? "ok" : "fail",
+             ok_ssim  ? "ok" : "fail",
+             ok_test_vmaf ? "ok" : "fail");
+    return (ok_ffmpeg && ok_ssim && ok_vmaf && ok_model_hd && ok_model_4k && ok_test_vmaf) ? 0 : -1;
+}

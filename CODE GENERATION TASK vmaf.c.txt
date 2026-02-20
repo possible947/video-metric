@@ -1,0 +1,84 @@
+=== CODE GENERATION TASK ===
+File: src/vmaf.c
+
+Purpose:
+Compute the VMAF metric between two video files by invoking local `ffmpeg` with a complex‑filtergraph that uses the `libvmaf` filter, parse its single output line, and return the numeric VMAF value.
+
+Context Summary:
+`vmaf.c` is called from `main.c` when the user requests VMAF (`-v`). It must:
+- Build a safe command line using the escaped paths from `path_util.h`.
+- Determine the correct model file (`model/vmaf_v0.6.1.json` for HD or `model/vmaf_4k_v0.6.1.json` for 4K) based on the resolution passed from `main.c`.
+- Create a temporary directory or file for the JSON log (`vmaf.json`) that will be supplied to the filter via `log_path=<tmp_path>`. The log is used only for verifying success; the value is extracted from stdout, not from the log.
+- Execute the command via `popen` (or similar) and capture stdout.
+- Extract the value following `VMAF score:` in the line that starts with `VMAF`.
+- Convert the extracted substring to a `double` and return it.
+- Handle errors (command failure, parse failure) by returning `NAN` and optionally printing an error to `stderr`.
+
+Requirements:
+- Provide a function  
+  `double compute_vmaf(const char *orig, const char *test, const char *model_path, int threads, char *json_path, size_t json_bufsize)`.
+  - `json_path` is a buffer that the caller will fill with the full path of the temporary log file (e.g., `/tmp/video_metric_vmaf_XXXX.json`).  
+  - The function may create the temporary file/directory, write the path into `json_path`, and delete the file after use.
+- Use the environment variable `PATH` or the local `ffmpeg` located at `./ffmpeg` (the executable should be referenced as `./ffmpeg`).
+- If `threads` > 0, append `-threads <N>` to the ffmpeg command; otherwise use default.
+- The command format (without quotes) for single‑line output:
+```bash
+./ffmpeg -i "<orig>" -i "<test>" \
+-filter_complex "[0:v][1:v]libvmaf=model=path=<model_path>:n_threads=<N>:log_path=<json_path>" \
+-f null - -threads <N>
+```
+- Capture and parse the **full** output of `ffmpeg` (the progress bar etc., but only the final VMAF line needs to be extracted.
+- Use only C standard library (POSIX functions such as `mkstemp`, `unlink`, `snprintf`, `popen`, `fgets`).
+- **We should not generate code.**  
+- **The function prototype and implementation logic are provided, but no actual C code.**  
+
+Pseudocode:
+```
+double compute_vmaf(
+    const char *orig,
+    const char *test,
+    const char *model_path,
+    int threads,
+    char *json_path,
+    size_t json_bufsize) {
+
+    // 1. Create temporary file for log
+    char template[] = "/tmp/vmaf_XXXXXX.json";
+    int fd = mkstemp(template);
+    if (fd < 0) { error; return NAN; }
+    close(fd);
+    // copy full path to json_path
+    strncpy(json_path, template, json_bufsize);
+
+    // 2. Escape paths
+    char esc_orig[PATH_MAX];
+    char esc_test[PATH_MAX];
+    escape_path(orig, esc_orig, sizeof(esc_orig));
+    escape_path(test, esc_test, sizeof(esc_test));
+
+    // 3. Build command
+    char cmd[4096];
+    snprintf(cmd, sizeof(cmd),
+        "./ffmpeg -i %s -i %s -filter_complex \"[0:v][1:v]libvmaf=model=path=%s:n_threads=%d:log_path=%s\" -f null - -threads %d",
+        esc_orig, esc_test, model_path, threads > 0 ? threads : 1, json_path, threads > 0 ? threads : 1);
+
+    // 4. Execute and capture output
+    FILE *fp = popen(cmd, "r");
+    if (!fp) { error; unlink(json_path); return NAN; }
+    double score = NAN;
+    char line[1024];
+    while (fgets(line, sizeof(line), fp)) {
+        if (strncmp(line, "VMAF score:", 11) == 0) {
+            char *ptr = line + 11;
+            while (*ptr && isspace((unsigned char)*ptr)) ptr++;
+            score = strtod(ptr, NULL);
+            break;
+        }
+    }
+    pclose(fp);
+
+    // 5. Clean up log
+    unlink(json_path);
+
+    return score;
+}

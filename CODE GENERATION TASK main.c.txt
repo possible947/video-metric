@@ -1,0 +1,83 @@
+=== CODE GENERATION TASK ===
+File: src/main.c
+
+Purpose:
+Entry point for the `video_metric` utility. Parses CLI arguments, performs environment checks, validates input files, calls SSIM and/or VMAF calculators, parses their outputs, and prints final results.
+
+Context Summary:
+`main.c` orchestrates the overall flow:
+1. Parse command‑line options into `struct cli_options`.
+2. Verify that at least one metric flag (`-s` or `-v`) is present.
+3. Perform environment check via `check_environment`.
+4. Validate that the original and test files exist and are readable.
+5. For each requested metric, call the corresponding compute function:
+   - `compute_ssim` for SSIM.
+   - `compute_vmaf` for VMAF.
+6. Collect results, format them as `SSIM: <value>` or `VMAF: <value>`, and output to stdout.
+7. Handle errors gracefully, printing descriptive messages and exiting with non‑zero status.
+
+Requirements:
+- Include necessary headers (`cli_options.h`, `env_check.h`, `ssim.h`, `vmaf.h`, `stdio.h`, `stdlib.h`, `string.h`, `errno.h`, `sys/stat.h`, `unistd.h`).
+- Use GNU‑C11-compatible flags (`-std=gnu11`, etc.).
+- Ensure all dynamic allocations are freed, and any temporary files (e.g., VMAF JSON log) are removed.
+- On environment check failure, print the status line and exit immediately.
+- On missing input files, print an error and exit.
+- If both `-s` and `-v` are specified, perform both calculations and print both results (each on a separate line).
+
+Functions to Implement:
+- `int main(int argc, char *argv[])` – main program logic.
+
+Input Data:
+- `argc`, `argv` from the shell.
+- Environment variables (e.g., `PATH` for locating `ffmpeg` if needed).
+- Filesystem state (original and test video files).
+
+Output Data:
+- Standard output: status line (from environment check) and metric results.
+- Standard error: error messages for invalid usage or failures.
+- Exit code: 0 on success, non‑zero on failure.
+
+Pseudocode:
+```
+int main(int argc, char *argv[]) {
+    struct cli_options opts;
+    if (parse_cli(argc, argv, &opts) != 0) {
+        print usage;
+        return 1;
+    }
+    if (!opts.compute_ssim && !opts.compute_vmaf) {
+        error("Specify at least one metric");
+        return 1;
+    }
+
+    char status_buf[256];
+    if (check_environment(status_buf, sizeof(status_buf)) != 0) {
+        printf("%s\n", status_buf);
+        return 1;
+    }
+    printf("%s\n", status_buf);
+
+    if (!file_exists(opts.orig) || !file_exists(opts.test)) {
+        error("Input files missing");
+        return 1;
+    }
+
+    double ssim_val = NAN;
+    if (opts.compute_ssim) {
+        ssim_val = compute_ssim(opts.orig, opts.test, opts.num_threads);
+        printf("SSIM: %.6f\n", ssim_val);
+    }
+
+    double vmaf_val = NAN;
+    if (opts.compute_vmaf) {
+        char json_path[PATH_MAX];
+        create_temp_dir(json_path, sizeof(json_path));
+        vmaf_val = compute_vmaf(opts.orig, opts.test, model_path(opts.resolution),
+                                opts.num_threads, json_path, sizeof(json_path));
+        printf("VMAF: %.6f\n", vmaf_val);
+        remove_temp_dir(json_path);
+    }
+
+    return 0;
+}
+

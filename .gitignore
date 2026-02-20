@@ -1,0 +1,33 @@
+
+# Build directories
+obj/
+*.o
+
+# Executable
+video_metric
+
+# Generated files
+vmaf.json
+*.pyc
+__pycache__/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.log
+
+# Model files (if large)
+model/*.json
+
+# Test artifacts
+test_output/

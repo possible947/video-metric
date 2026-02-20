@@ -1,0 +1,20 @@
+=== CODE GENERATION TASK ===
+File: src/cli_options.h
+
+Purpose:
+Define the `struct cli_options` data structure used by `cli_parser.c`, `main.c`, `ssim.c`, and `vmaf.c` to convey parsed command‑line arguments.
+
+Context Summary:
+`cli_options.h` should expose a single struct with fields for all options, default values, and flags indicating which metrics to compute. It is included by all modules that need to access the parsed options.
+
+Requirements:
+- Declare a struct named `cli_options` with the following members:
+  - `char *orig;` – path to the original video (required).
+  - `char *test;` – path to the test video (required).
+  - `int compute_ssim;` – boolean flag (1 if `-s/--ssim` present).
+  - `int compute_vmaf;` – boolean flag (1 if `-v/--vmaf` present).
+  - `char *resolution;` – resolution string (`"hd"` or `"4k"`), default `"hd"`.
+  - `int num_threads;` – thread count (0 means default), default 0.
+- Provide any necessary include guards and standard includes (`<stddef.h>` if needed).
+- No function prototypes are required in this header; all logic resides in the corresponding `.c` files.
+
