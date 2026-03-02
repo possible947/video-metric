@@ -6,9 +6,17 @@
 #  and provide a clean target.
 #
 #  Usage:
-#     make            # build video_metric
-#     make clean      # remove build artefacts
+#     make                          # build video_metric (auto-detect threading)
+#     make MSSSIM_USE_OPENMP=yes    # force OpenMP (requires -fopenmp support)
+#     make MSSSIM_USE_OPENMP=no     # force pthreads (even if OpenMP available)
+#     make MSSSIM_SINGLE_THREAD=yes # disable all threading
+#     make clean                    # remove build artefacts
 #
+#  macOS (system clang, no OpenMP):
+#     make MSSSIM_USE_OPENMP=no
+#
+#  macOS (Homebrew llvm with OpenMP):
+#     CC=/usr/local/opt/llvm/bin/clang make MSSSIM_USE_OPENMP=yes
 #---------------------------------------------------------------------
 
 #----------------------------------------------------------------------
@@ -25,6 +33,41 @@ CC        := gcc
 CFLAGS    := -std=gnu11 -Wall -Wextra -O2 -I$(SRC_DIR) \
              -D_GNU_SOURCE -D_FORTIFY_SOURCE=2 -fstack-protector-strong
 LDFLAGS   := -lm
+
+#----------------------------------------------------------------------
+# Threading configuration
+#----------------------------------------------------------------------
+# Disable multithreading entirely
+ifeq ($(MSSSIM_SINGLE_THREAD),yes)
+    CFLAGS += -DMSSSIM_SINGLE_THREAD
+    $(info [threading] single-threaded mode)
+
+else ifeq ($(MSSSIM_USE_OPENMP),yes)
+    # OpenMP explicitly requested
+    CFLAGS  += -fopenmp
+    LDFLAGS += -fopenmp
+    $(info [threading] OpenMP enabled (explicit))
+
+else ifeq ($(MSSSIM_USE_OPENMP),no)
+    # pthreads explicitly requested (e.g. macOS system clang)
+    CFLAGS  += -pthread
+    LDFLAGS += -pthread
+    $(info [threading] pthreads enabled (explicit))
+
+else
+    # Auto-detect: prefer OpenMP, fall back to pthreads
+    _OMP_TEST := $(shell printf 'int main(){return 0;}' | \
+                     $(CC) -fopenmp -x c - -o /dev/null 2>/dev/null && echo yes)
+    ifeq ($(_OMP_TEST),yes)
+        CFLAGS  += -fopenmp
+        LDFLAGS += -fopenmp
+        $(info [threading] OpenMP auto-detected and enabled)
+    else
+        CFLAGS  += -pthread
+        LDFLAGS += -pthread
+        $(info [threading] OpenMP not available, using pthreads)
+    endif
+endif
 
 #----------------------------------------------------------------------
 # Source files and corresponding object files
@@ -87,9 +130,15 @@ clean:
 .PHONY: help
 help:
 	@echo "Makefile targets:"
-	@echo "  all     – build video_metric"
-	@echo "  clean   – remove build artefacts"
-	@echo "  help    – this message"
+	@echo "  all                       – build video_metric (auto-detect threading)"
+	@echo "  MSSSIM_USE_OPENMP=yes     – build with OpenMP"
+	@echo "  MSSSIM_USE_OPENMP=no      – build with pthreads (macOS system clang)"
+	@echo "  MSSSIM_SINGLE_THREAD=yes  – build single-threaded"
+	@echo "  clean                     – remove build artefacts"
+	@echo "  help                      – this message"
+	@echo ""
+	@echo "Runtime tuning:"
+	@echo "  MSSSIM_THREADS=<n>  – set number of worker threads via env var"
 
 #======================================================================
 # End of Makefile

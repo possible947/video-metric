@@ -75,7 +75,8 @@ static void compute_statistics(const double *values, int count, metric_stats *st
 /* ------------------------------------------------------------------ */
 int compute_ms_ssim(const char *orig, const char *test, int threads, metric_stats *stats)
 {
-    (void)threads; /* MS-SSIM not yet parallelized */
+    /* Apply thread count (0 = auto-detect; positive = explicit) */
+    msssim_set_num_threads(threads);
 
     if (!orig || !test || !stats) {
         fprintf(stderr, "compute_ms_ssim: NULL input path or stats\n");
