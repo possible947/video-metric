@@ -153,11 +153,11 @@ static void blur_v_rows(
 #if !defined(MSSSIM_SINGLE_THREAD) && !defined(_OPENMP)
 
 typedef struct {
-    const float *src;
-    float *dst;
-    int width, height;
-    int horizontal;  /* 1 = horizontal pass, 0 = vertical pass */
-    int y0, y1;
+    const float *src;   /* source image plane */
+    float *dst;         /* destination image plane */
+    int width, height;  /* full image dimensions */
+    int horizontal;     /* 1 = horizontal blur pass, 0 = vertical */
+    int y0, y1;         /* row range [y0, y1) handled by this task */
 } BlurTask;
 
 static void *blur_pthread_worker(void *arg)
@@ -212,10 +212,12 @@ static void blur_1d_pthreads(
             created++;
         } else {
             /* Join already-created threads, then finish serially */
-            for (int j = 0; j < created; j++)
+            for (int j = 0; j < created; j++) {
                 pthread_join(threads[j], NULL);
-            for (int j = t; j < actual; j++)
+            }
+            for (int j = t; j < actual; j++) {
                 blur_pthread_worker(&args[j]);
+            }
             return;
         }
     }
@@ -331,10 +333,8 @@ static void compute_local_stats(
 
     /* Compute img^2 and apply Gaussian blur */
     int n = width * height;
-    float *img_sq  = NULL;
-    float *mean_sq = NULL;
-    img_sq  = (float *)malloc((size_t)n * sizeof(float));
-    mean_sq = (float *)malloc((size_t)n * sizeof(float));
+    float *img_sq  = (float *)malloc((size_t)n * sizeof(float));
+    float *mean_sq = (float *)malloc((size_t)n * sizeof(float));
     if (!img_sq || !mean_sq) {
         free(img_sq);
         free(mean_sq);
