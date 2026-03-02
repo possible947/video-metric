@@ -1,0 +1,51 @@
+/*====================================================================*/
+/*  FILE: src/ssim_improved.c chunk - updated parsing logic           */
+/*  This shows the improved parsing strategy for SSIM values          */
+/*====================================================================*/
+
+/* Improved line parsing for SSIM - handles multiple formats:
+ * Format 1: SSIM ... All: 0.95234
+ * Format 2: n:1 ... All: 0.95234
+ * Format 3: Just numbers after SSIM filter output
+ */
+static int parse_ssim_line(const char *line, double *value)
+{
+    if (!line || !value)
+        return 0;
+
+    /* Strategy 1: Look for "All:" pattern (most common) */
+    const char *p = strstr(line, "All:");
+    if (p) {
+        p += 4; /* skip "All:" */
+        while (*p && isspace((unsigned char)*p))
+            p++;
+        
+        char *endptr;
+        double v = strtod(p, &endptr);
+        if (endptr != p && !isnan(v) && v >= 0.0 && v <= 1.0) {
+            *value = v;
+            return 1;
+        }
+    }
+
+    /* Strategy 2: Look for mean/average value in different formats */
+    /* Some ffmpeg versions end SSIM output with "mean:" */
+    p = strstr(line, "mean:");
+    if (!p)
+        p = strstr(line, "Mean:");
+    
+    if (p) {
+        p += 5; /* skip "mean:" or "Mean:" */
+        while (*p && isspace((unsigned char)*p))
+            p++;
+        
+        char *endptr;
+        double v = strtod(p, &endptr);
+        if (endptr != p && !isnan(v) && v >= 0.0 && v <= 1.0) {
+            *value = v;
+            return 1;
+        }
+    }
+
+    return 0;
+}

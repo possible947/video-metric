@@ -22,6 +22,7 @@
 #include <errno.h>
 #include <sys/wait.h>   /* waitpid, WIFEXITED, WEXITSTATUS */
 #include <fcntl.h>      /* open, O_WRONLY */
+#include "path_util.h"   /* get_executable_dir */
 
 /* ------------------------------------------------------------------ */
 /*  Helper: check if a file exists and is executable                  */
@@ -79,31 +80,12 @@ static int run_cmd_quiet(const char *cmd)
 }
 
 /* ------------------------------------------------------------------ */
-/*  Helper: get directory of the executable                           */
-/* ------------------------------------------------------------------ */
-static int get_exec_dir(char *buf, size_t buflen)
-{
-    ssize_t n = readlink("/proc/self/exe", buf, buflen - 1);
-    if (n == -1)
-        return -1;
-
-    buf[n] = '\0';
-
-    char *slash = strrchr(buf, '/');
-    if (!slash)
-        return -1;
-
-    *slash = '\0';
-    return 0;
-}
-
-/* ------------------------------------------------------------------ */
 /*  Main API: check_environment                                       */
 /* ------------------------------------------------------------------ */
 int check_environment(char *status_buf, size_t bufsize)
 {
     char exec_dir[PATH_MAX];
-    if (get_exec_dir(exec_dir, sizeof(exec_dir)) != 0) {
+    if (get_executable_dir(exec_dir, sizeof(exec_dir)) != 0) {
         snprintf(status_buf, bufsize,
                  "ffmpeg: fail, ssim: fail, vmaf: fail");
         return -1;

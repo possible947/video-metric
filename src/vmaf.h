@@ -2,6 +2,7 @@
 #define VMAF_H
 
 #include <stddef.h>
+#include "metrics_common.h"
 
 /**
  * Compute VMAF between two videos using local ffmpeg and libvmaf.
@@ -14,15 +15,17 @@
  *                    If threads <= 0, a default of 1 is used.
  * @param json_path   Output buffer for the log file path ("vmaf.json").
  * @param json_bufsize Size of the json_path buffer.
+ * @param stats       Output structure for min, max, mean VMAF scores.
  *
- * @return VMAF score as double, or NAN on failure.
+ * @return 0 on success, -1 on failure.
  */
-double compute_vmaf(const char *orig,
-                    const char *test,
-                    const char *model_path,
-                    int         threads,
-                    char       *json_path,
-                    size_t      json_bufsize);
+int compute_vmaf(const char *orig,
+                 const char *test,
+                 const char *model_path,
+                 int         threads,
+                 char       *json_path,
+                 size_t      json_bufsize,
+                 metric_stats *stats);
 
 #endif /* VMAF_H */
 

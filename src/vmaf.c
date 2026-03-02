@@ -24,6 +24,7 @@
 #include <math.h>
 #include <ctype.h>
 #include <sys/wait.h>
+#include <sys/stat.h>
 #include <fcntl.h>
 
 #include "path_util.h"
@@ -79,24 +80,118 @@ static void print_progress_bar(int percent)
 }
 
 /* ------------------------------------------------------------------ */
+/*  Helper: parse VMAF JSON log file and extract statistics          */
+/* ------------------------------------------------------------------ */
+static int parse_vmaf_json(const char *json_path, metric_stats *stats)
+{
+    FILE *fp = fopen(json_path, "r");
+    if (!fp) {
+        fprintf(stderr, "parse_vmaf_json: cannot open %s\n", json_path);
+        return -1;
+    }
+
+    /* Dynamic array to store per-frame VMAF values */
+    size_t capacity = 1000;
+    size_t count = 0;
+    double *values = malloc(capacity * sizeof(double));
+    if (!values) {
+        perror("malloc");
+        fclose(fp);
+        return -1;
+    }
+
+    /* VMAF JSON is actually XML format. Parse frame vmaf="value" attributes */
+    char line[4096];
+    
+    while (fgets(line, sizeof(line), fp)) {
+        /* Look for <frame ... vmaf="value" ... /> or vmaf= attribute */
+        char *p = strstr(line, "vmaf=");
+        if (!p)
+            continue;
+        
+        /* Move past vmaf= and potential quote */
+        p += 5;
+        if (*p == '"' || *p == '\'') p++;
+        
+        /* Parse the number */
+        errno = 0;
+        char *endptr;
+        double v = strtod(p, &endptr);
+        
+        /* Accept reasonable VMAF values (0-100) */
+        if (errno == 0 && endptr != p && !isnan(v) && v >= 0.0 && v <= 100.0) {
+            /* Store the value */
+            if (count >= capacity) {
+                capacity *= 2;
+                double *new_values = realloc(values, capacity * sizeof(double));
+                if (!new_values) {
+                    perror("realloc");
+                    free(values);
+                    fclose(fp);
+                    return -1;
+                }
+                values = new_values;
+            }
+            values[count++] = v;
+        }
+    }
+
+    fclose(fp);
+
+    /* Calculate statistics */
+    if (count == 0) {
+        free(values);
+        fprintf(stderr, "parse_vmaf_json: no VMAF values found in JSON at %s\n", json_path);
+        
+        /* Print file size for debugging */
+        struct stat st;
+        if (stat(json_path, &st) == 0) {
+            fprintf(stderr, "[DEBUG] JSON file size: %lld bytes\n", (long long)st.st_size);
+        }
+        return -1;
+    }
+
+    double sum = 0.0;
+    stats->min = values[0];
+    stats->max = values[0];
+
+    for (size_t i = 0; i < count; i++) {
+        sum += values[i];
+        if (values[i] < stats->min) stats->min = values[i];
+        if (values[i] > stats->max) stats->max = values[i];
+    }
+
+    stats->mean = sum / count;
+
+    free(values);
+    return 0;
+}
+
+/* ------------------------------------------------------------------ */
 /*  Compute VMAF                                                      */
 /* ------------------------------------------------------------------ */
-double compute_vmaf(const char *orig,
-                    const char *test,
-                    const char *model_path,
-                    int         threads,
-                    char       *json_path,
-                    size_t      json_bufsize)
+int compute_vmaf(const char *orig,
+                 const char *test,
+                 const char *model_path,
+                 int         threads,
+                 char       *json_path,
+                 size_t      json_bufsize,
+                 metric_stats *stats)
 {
-    if (!orig || !test || !model_path || !json_path || json_bufsize == 0) {
+    if (!orig || !test || !model_path || !json_path || json_bufsize == 0 || !stats) {
         fprintf(stderr, "compute_vmaf: invalid argument(s)\n");
-        return NAN;
+        return -1;
     }
+
+    /* Initialize stats */
+    stats->min = INFINITY;
+    stats->max = -INFINITY;
+    stats->mean = NAN;
 
     const char *ffmpeg = get_ffmpeg_path();
     if (!ffmpeg) {
         fprintf(stderr, "compute_vmaf: local ffmpeg not found\n");
-        return NAN;
+        return -1;
     }
 
     /* Get video duration for progress calculation */
@@ -109,7 +204,7 @@ double compute_vmaf(const char *orig,
     const char *log_file = "vmaf.json";
     if (strlen(log_file) >= json_bufsize) {
         fprintf(stderr, "compute_vmaf: json_path buffer too small\n");
-        return NAN;
+        return -1;
     }
     strncpy(json_path, log_file, json_bufsize);
     json_path[json_bufsize - 1] = '\0';
@@ -143,14 +238,14 @@ double compute_vmaf(const char *orig,
 
     if (n < 0 || (size_t)n >= sizeof(cmd)) {
         fprintf(stderr, "compute_vmaf: command buffer overflow\n");
-        return NAN;
+        return -1;
     }
 
     /* Fork and execute ffmpeg with pipe to read output */
     int pipefd[2];
     if (pipe(pipefd) == -1) {
         perror("pipe");
-        return NAN;
+        return -1;
     }
 
     pid_t pid = fork();
@@ -158,7 +253,7 @@ double compute_vmaf(const char *orig,
         perror("fork");
         close(pipefd[0]);
         close(pipefd[1]);
-        return NAN;
+        return -1;
     }
 
     if (pid == 0) {
@@ -175,14 +270,13 @@ double compute_vmaf(const char *orig,
     /* Parent process: read output and track progress */
     close(pipefd[1]); /* Close write end */
 
-    double score = NAN;
     char line[2048];
     FILE *fp = fdopen(pipefd[0], "r");
     if (!fp) {
         perror("fdopen");
         close(pipefd[0]);
         waitpid(pid, NULL, 0);
-        return NAN;
+        return -1;
     }
 
     while (fgets(line, sizeof(line), fp)) {
@@ -199,22 +293,6 @@ double compute_vmaf(const char *orig,
                 }
             }
         }
-
-        /* Look for VMAF result: "VMAF score: <value>" */
-        char *p = strstr(line, "VMAF score:");
-        if (!p)
-            continue;
-
-        p += strlen("VMAF score:");
-        while (*p && isspace((unsigned char)*p))
-            p++;
-
-        errno = 0;
-        double v = strtod(p, NULL);
-        if (errno == 0)
-            score = v;
-
-        break; /* first occurrence is enough */
     }
 
     fclose(fp);
@@ -227,18 +305,19 @@ double compute_vmaf(const char *orig,
         printf("\n");
     }
 
-    if (status == -1) {
-        score = NAN;
-    } else if (WIFEXITED(status)) {
-        if (WEXITSTATUS(status) != 0)
-            score = NAN;
-    } else {
-        score = NAN;
+    /* Check process exit status */
+    if (status == -1 || !WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+        fprintf(stderr, "compute_vmaf: ffmpeg process failed\n");
+        return -1;
     }
 
-    if (isnan(score))
-        fprintf(stderr, "compute_vmaf: failed to obtain VMAF score\n");
+    /* Parse the JSON log file to extract statistics */
+    int rc = parse_vmaf_json(json_path, stats);
+    if (rc != 0) {
+        fprintf(stderr, "compute_vmaf: failed to parse VMAF scores from JSON\n");
+        return -1;
+    }
 
-    return score;
+    return 0;
 }
 

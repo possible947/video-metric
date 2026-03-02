@@ -61,6 +61,69 @@ static double parse_time_string(const char *timestr)
 }
 
 /* ------------------------------------------------------------------ */
+/*  Helper: parse SSIM value from output line (handles multiple formats) */
+/* ------------------------------------------------------------------ */
+static int parse_ssim_value(const char *line, double *value)
+{
+    if (!line || !value)
+        return 0;
+
+    /* Strategy 1: Look for "All:" pattern (most common) */
+    const char *p = strstr(line, "All:");
+    if (p) {
+        p += 4; /* skip "All:" */
+        while (*p && isspace((unsigned char)*p))
+            p++;
+        
+        char *endptr;
+        double v = strtod(p, &endptr);
+        if (endptr != p && !isnan(v) && v >= 0.0 && v <= 1.0) {
+            *value = v;
+            return 1;
+        }
+    }
+
+    /* Strategy 2: Look for mean/average in output */
+    p = strstr(line, "mean:");
+    if (!p)
+        p = strstr(line, "Mean:");
+    
+    if (p) {
+        p += 5;
+        while (*p && isspace((unsigned char)*p))
+            p++;
+        
+        char *endptr;
+        double v = strtod(p, &endptr);
+        if (endptr != p && !isnan(v) && v >= 0.0 && v <= 1.0) {
+            *value = v;
+            return 1;
+        }
+    }
+
+    /* Strategy 3: Look for numbers after SSIM keyword */
+    p = strstr(line, "SSIM");
+    if (p) {
+        /* Skip ahead and look for numbers */
+        char *endptr;
+        while (*p) {
+            double v = strtod(p, &endptr);
+            if (endptr != p && !isnan(v) && v >= 0.0 && v <= 1.0) {
+                *value = v;
+                return 1;
+            }
+            if (*p == '\0')
+                break;
+            p = endptr;
+            if (!*p || isspace((unsigned char)*p))
+                p++;
+        }
+    }
+
+    return 0;
+}
+
+/* ------------------------------------------------------------------ */
 /*  Helper: print progress bar                                        */
 /* ------------------------------------------------------------------ */
 static void print_progress_bar(int percent)
@@ -81,17 +144,22 @@ static void print_progress_bar(int percent)
 /* ------------------------------------------------------------------ */
 /*  Compute SSIM                                                      */
 /* ------------------------------------------------------------------ */
-double compute_ssim(const char *orig, const char *test, int threads)
+int compute_ssim(const char *orig, const char *test, int threads, metric_stats *stats)
 {
-    if (!orig || !test) {
-        fprintf(stderr, "compute_ssim: NULL input path\n");
-        return NAN;
+    if (!orig || !test || !stats) {
+        fprintf(stderr, "compute_ssim: NULL input path or stats\n");
+        return -1;
     }
+
+    /* Initialize stats */
+    stats->min = INFINITY;
+    stats->max = -INFINITY;
+    stats->mean = NAN;
 
     const char *ffmpeg = get_ffmpeg_path();
     if (!ffmpeg) {
         fprintf(stderr, "compute_ssim: local ffmpeg not found\n");
-        return NAN;
+        return -1;
     }
 
     /* Get video duration for progress calculation */
@@ -110,29 +178,33 @@ double compute_ssim(const char *orig, const char *test, int threads)
     /* Normalize threads */
     int ssim_threads = (threads > 0) ? threads : 1;
 
-    /* Build ffmpeg command */
+    /* Create temp stats file */
+    const char *stats_file = "ssim_stats_temp.log";
+
+    /* Build ffmpeg command with stats_file for per-frame data */
     char cmd[4096];
     int n = snprintf(
         cmd, sizeof(cmd),
         "%s -threads %d -i %s -i %s "
-        "-filter_complex \"[0:v][1:v]ssim\" "
+        "-filter_complex \"[0:v][1:v]ssim=stats_file=%s\" "
         "-f null - 2>&1",
         ffmpeg,
         ssim_threads,
         esc_orig,
-        esc_test
+        esc_test,
+        stats_file
     );
 
     if (n < 0 || (size_t)n >= sizeof(cmd)) {
         fprintf(stderr, "compute_ssim: command buffer overflow\n");
-        return NAN;
+        return -1;
     }
 
     /* Fork and execute ffmpeg with pipe to read output */
     int pipefd[2];
     if (pipe(pipefd) == -1) {
         perror("pipe");
-        return NAN;
+        return -1;
     }
 
     pid_t pid = fork();
@@ -140,7 +212,7 @@ double compute_ssim(const char *orig, const char *test, int threads)
         perror("fork");
         close(pipefd[0]);
         close(pipefd[1]);
-        return NAN;
+        return -1;
     }
 
     if (pid == 0) {
@@ -157,14 +229,25 @@ double compute_ssim(const char *orig, const char *test, int threads)
     /* Parent process: read output and track progress */
     close(pipefd[1]); /* Close write end */
 
-    double score = NAN;
+    /* Dynamic array to store per-frame SSIM values */
+    size_t capacity = 1000;
+    size_t count = 0;
+    double *values = malloc(capacity * sizeof(double));
+    if (!values) {
+        perror("malloc");
+        close(pipefd[0]);
+        waitpid(pid, NULL, 0);
+        return -1;
+    }
+
     char line[2048];
     FILE *fp = fdopen(pipefd[0], "r");
     if (!fp) {
         perror("fdopen");
         close(pipefd[0]);
+        free(values);
         waitpid(pid, NULL, 0);
-        return NAN;
+        return -1;
     }
 
     while (fgets(line, sizeof(line), fp)) {
@@ -181,27 +264,6 @@ double compute_ssim(const char *orig, const char *test, int threads)
                 }
             }
         }
-
-        /* Look for SSIM result: "SSIM ... All: <value>" */
-        char *p = strstr(line, "SSIM");
-        if (!p)
-            continue;
-
-        char *a = strstr(p, "All:");
-        if (!a)
-            continue;
-
-        a += 4; /* skip "All:" */
-
-        while (*a && isspace((unsigned char)*a))
-            a++;
-
-        errno = 0;
-        double v = strtod(a, NULL);
-        if (errno == 0)
-            score = v;
-
-        break; /* first SSIM line is enough */
     }
 
     fclose(fp);
@@ -214,18 +276,67 @@ double compute_ssim(const char *orig, const char *test, int threads)
         printf("\n");
     }
 
-    if (status == -1) {
-        score = NAN;
-    } else if (WIFEXITED(status)) {
-        if (WEXITSTATUS(status) != 0)
-            score = NAN;
-    } else {
-        score = NAN;
+    /* Check process exit status */
+    if (status == -1 || !WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+        free(values);
+        unlink(stats_file);
+        fprintf(stderr, "compute_ssim: ffmpeg process failed\n");
+        return -1;
     }
 
-    if (isnan(score))
-        fprintf(stderr, "compute_ssim: failed to obtain SSIM value\n");
+    /* Parse stats file for per-frame values */
+    FILE *stats_fp = fopen(stats_file, "r");
+    if (!stats_fp) {
+        free(values);
+        unlink(stats_file);
+        fprintf(stderr, "compute_ssim: cannot open stats file\n");
+        return -1;
+    }
 
-    return score;
+    char stats_line[1024];
+    while (fgets(stats_line, sizeof(stats_line), stats_fp)) {
+        /* Parse line: n:1 Y:0.992647 U:0.995634 V:0.996532 All:0.993792 (22.070712) */
+        double all_value = 0.0;
+        if (parse_ssim_value(stats_line, &all_value)) {
+            if (count >= capacity) {
+                capacity *= 2;
+                double *new_values = realloc(values, capacity * sizeof(double));
+                if (!new_values) {
+                    perror("realloc");
+                    free(values);
+                    fclose(stats_fp);
+                    unlink(stats_file);
+                    return -1;
+                }
+                values = new_values;
+            }
+            values[count++] = all_value;
+        }
+    }
+
+    fclose(stats_fp);
+    unlink(stats_file);
+
+    /* Calculate statistics */
+    if (count == 0) {
+        free(values);
+        fprintf(stderr, "compute_ssim: no SSIM values collected from stats file\n");
+        return -1;
+    }
+
+    double sum = 0.0;
+    stats->min = values[0];
+    stats->max = values[0];
+
+    for (size_t i = 0; i < count; i++) {
+        sum += values[i];
+        if (values[i] < stats->min) stats->min = values[i];
+        if (values[i] > stats->max) stats->max = values[i];
+    }
+
+    stats->mean = sum / count;
+
+    free(values);
+    return 0;
 }
 

@@ -65,6 +65,7 @@ int parse_cli(int argc, char *argv[], struct cli_options *opts)
     opts->orig           = NULL;
     opts->test           = NULL;
     opts->compute_ssim   = 0;
+    opts->compute_ms_ssim = 0;
     opts->compute_vmaf   = 0;
     opts->resolution     = dup_or_die("hd");   /* default */
     opts->num_threads    = 0;                  /* default */
@@ -72,6 +73,7 @@ int parse_cli(int argc, char *argv[], struct cli_options *opts)
     /* Helper flags to check required options */
     int got_orig = 0;
     int got_test = 0;
+    int metrics_explicitly_set = 0;
 
     for (int i = 1; i < argc; ++i) {
         char *arg = argv[i];
@@ -99,9 +101,15 @@ int parse_cli(int argc, char *argv[], struct cli_options *opts)
             }
             else if (strcmp(arg, "--ssim") == 0) {
                 opts->compute_ssim = 1;
+                metrics_explicitly_set = 1;
+            }
+            else if (strcmp(arg, "--ms-ssim") == 0) {
+                opts->compute_ms_ssim = 1;
+                metrics_explicitly_set = 1;
             }
             else if (strcmp(arg, "--vmaf") == 0) {
                 opts->compute_vmaf = 1;
+                metrics_explicitly_set = 1;
             }
             else if (strcmp(arg, "--resolution") == 0) {
                 if (i + 1 >= argc) {
@@ -183,10 +191,17 @@ int parse_cli(int argc, char *argv[], struct cli_options *opts)
 
                 case 's':
                     opts->compute_ssim = 1;
+                    metrics_explicitly_set = 1;
+                    break;
+
+                case 'm':
+                    opts->compute_ms_ssim = 1;
+                    metrics_explicitly_set = 1;
                     break;
 
                 case 'v':
                     opts->compute_vmaf = 1;
+                    metrics_explicitly_set = 1;
                     break;
 
                 case 'r':   /* -r hd|4k */
@@ -271,6 +286,13 @@ int parse_cli(int argc, char *argv[], struct cli_options *opts)
     if (!got_test) {
         fprintf(stderr, "Error: missing required option --test/-t\n");
         return -1;
+    }
+
+    /* If no metrics were explicitly set, compute all metrics by default */
+    if (!metrics_explicitly_set) {
+        opts->compute_ssim = 1;
+        opts->compute_ms_ssim = 1;
+        opts->compute_vmaf = 1;
     }
 
     return 0;

@@ -26,7 +26,9 @@
 #include "cli_options.h"
 #include "cli_parser.h"   /* parse_cli() prototype */
 #include "env_check.h"    /* check_environment() */
+#include "path_util.h"    /* get_executable_dir() */
 #include "ssim.h"         /* compute_ssim() */
+#include "ms_ssim.h"      /* compute_ms_ssim() */
 #include "vmaf.h"         /* compute_vmaf() */
 #include <stdio.h>
 #include <stdlib.h>
@@ -56,10 +58,12 @@ static void print_usage(const char *progname)
             "Options:\n"
             "  -o, --output <file>      Path to the original video (required)\n"
             "  -t, --test <file>        Path to the test video (required)\n"
-            "  -s, --ssim               Compute SSIM (optional)\n"
-            "  -v, --vmaf               Compute VMAF (optional)\n"
+            "  -s, --ssim               Compute SSIM\n"
+            "  -m, --ms-ssim            Compute MS-SSIM\n"
+            "  -v, --vmaf               Compute VMAF\n"
             "  -r, --resolution <hd|4k> Target resolution (default: hd)\n"
-            "  -n, --num_threads <int>  Number of worker threads (default: 0)\n",
+            "  -n, --num_threads <int>  Number of worker threads (default: 0)\n"
+            "Note: If no metrics are specified, all metrics will be computed.\n",
             progname);
 }
 
@@ -72,13 +76,6 @@ int main(int argc, char *argv[])
     int rc = parse_cli(argc, argv, &opts);
     if (rc != 0) {
         print_usage(argv[0]);
-        return EXIT_FAILURE;
-    }
-
-    if (!opts.compute_ssim && !opts.compute_vmaf) {
-        fprintf(stderr,
-                "Error: at least one metric flag must be set "
-                "(-s/--ssim or -v/--vmaf)\n");
         return EXIT_FAILURE;
     }
 
@@ -106,36 +103,47 @@ int main(int argc, char *argv[])
     /* ------------------------------------------------------------------ */
     /*  Compute metrics                                                 */
     /* ------------------------------------------------------------------ */
-    double ssim_val = NAN;
     if (opts.compute_ssim) {
         printf("Computing SSIM...\n");
         fflush(stdout);
-        ssim_val = compute_ssim(opts.orig, opts.test, opts.num_threads);
-        if (isnan(ssim_val)) {
+        
+        metric_stats ssim_stats;
+        int rc_ssim = compute_ssim(opts.orig, opts.test, opts.num_threads, &ssim_stats);
+        if (rc_ssim != 0) {
             fprintf(stderr,
                     "Error: SSIM computation failed\n");
             return EXIT_FAILURE;
         }
-        printf("SSIM: %.6f\n", ssim_val);
+        printf("SSIM - Min: %.6f, Max: %.6f, Mean: %.6f\n",
+               ssim_stats.min, ssim_stats.max, ssim_stats.mean);
     }
 
-    double vmaf_val = NAN;
+    if (opts.compute_ms_ssim) {
+        printf("Computing MS-SSIM...\n");
+        fflush(stdout);
+        
+        metric_stats ms_ssim_stats;
+        int rc_ms_ssim = compute_ms_ssim(opts.orig, opts.test, opts.num_threads, &ms_ssim_stats);
+        if (rc_ms_ssim != 0) {
+            fprintf(stderr,
+                    "Warning: MS-SSIM computation failed (filter may not be available in ffmpeg)\n");
+            /* Continue with other metrics instead of failing */
+        } else {
+            printf("MS-SSIM - Min: %.6f, Max: %.6f, Mean: %.6f\n",
+                   ms_ssim_stats.min, ms_ssim_stats.max, ms_ssim_stats.mean);
+        }
+    }
+
     if (opts.compute_vmaf) {
         printf("Computing VMAF...\n");
         fflush(stdout);
         /* Resolve the executable directory to locate the model files */
         char exec_dir[PATH_MAX];
-        ssize_t n = readlink("/proc/self/exe", exec_dir, sizeof(exec_dir) - 1);
-        if (n == -1) {
+        if (get_executable_dir(exec_dir, sizeof(exec_dir)) != 0) {
             fprintf(stderr,
-                    "Error: cannot determine executable path: %s\n",
-                    strerror(errno));
+                    "Error: cannot determine executable path\n");
             return EXIT_FAILURE;
         }
-        exec_dir[n] = '\0';
-        /* Strip executable name */
-        char *slash = strrchr(exec_dir, '/');
-        if (slash) *slash = '\0';
 
         char model_file[PATH_MAX];
         if (strcmp(opts.resolution, "hd") == 0) {
@@ -153,14 +161,17 @@ int main(int argc, char *argv[])
 
         /* Compute VMAF – let compute_vmaf create & delete its own log */
         char json_path[PATH_MAX];
-        vmaf_val = compute_vmaf(opts.orig, opts.test, model_file,
-                                opts.num_threads, json_path, sizeof(json_path));
-        if (isnan(vmaf_val)) {
+        metric_stats vmaf_stats;
+        int rc_vmaf = compute_vmaf(opts.orig, opts.test, model_file,
+                                    opts.num_threads, json_path, sizeof(json_path),
+                                    &vmaf_stats);
+        if (rc_vmaf != 0) {
             fprintf(stderr,
                     "Error: VMAF computation failed\n");
             return EXIT_FAILURE;
         }
-        printf("VMAF: %.6f\n", vmaf_val);
+        printf("VMAF - Min: %.6f, Max: %.6f, Mean: %.6f\n",
+               vmaf_stats.min, vmaf_stats.max, vmaf_stats.mean);
     }
 
     /* ------------------------------------------------------------------ */

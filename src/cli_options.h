@@ -33,8 +33,10 @@
  *  @var cli_options::compute_ssim
  *      Non‑zero if the user requested SSIM computation
  *      (`-s` / `--ssim`).
- *
- *  @var cli_options::compute_vmaf
+ *  *  @var cli_options::compute_ms_ssim
+      Non‑zero if the user requested MS-SSIM computation
+      (`-m` / `--ms-ssim`).
+ * *  @var cli_options::compute_vmaf
  *      Non‑zero if the user requested VMAF computation
  *      (`-v` / `--vmaf`).
  *
@@ -47,12 +49,13 @@
  *      choose an appropriate default.
  */
 struct cli_options {
-    char *orig;          /* Path to original video (required) */
-    char *test;          /* Path to test video (required)   */
-    int   compute_ssim;  /* 1 if SSIM flag was set         */
-    int   compute_vmaf;  /* 1 if VMAF flag was set         */
-    char *resolution;    /* "hd" or "4k", defaults to "hd"*/
-    int   num_threads;   /* 0 = default thread count      */
+    char *orig;           /* Path to original video (required) */
+    char *test;           /* Path to test video (required)   */
+    int   compute_ssim;   /* 1 if SSIM flag was set         */
+    int   compute_ms_ssim; /* 1 if MS-SSIM flag was set      */
+    int   compute_vmaf;   /* 1 if VMAF flag was set         */
+    char *resolution;     /* "hd" or "4k", defaults to "hd"*/
+    int   num_threads;    /* 0 = default thread count      */
 };
 
 #endif /* CLI_OPTIONS_H */

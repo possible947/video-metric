@@ -28,6 +28,12 @@
 #include <stdlib.h>  /* malloc, free */
 #include <stdio.h>   /* popen, pclose */
 #include <ctype.h>   /* isdigit */
+#include <unistd.h>   /* readlink */
+#include <limits.h>   /* PATH_MAX */
+
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#endif
 
 /* ------------------------------------------------------------------ */
 /*  Escape a path for shell insertion                                */
@@ -123,6 +129,56 @@ double get_video_duration(const char *video_path)
 
     pclose(fp);
     return duration;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Get executable directory (cross-platform)                        */
+/* ------------------------------------------------------------------ */
+int get_executable_dir(char *buf, size_t buflen)
+{
+    if (!buf || buflen == 0)
+        return -1;
+
+    char exe_path[PATH_MAX];
+
+#ifdef __APPLE__
+    /* macOS: use _NSGetExecutablePath */
+    uint32_t size = sizeof(exe_path);
+    if (_NSGetExecutablePath(exe_path, &size) != 0) {
+        return -1;
+    }
+    /* Resolve symlinks */
+    char resolved[PATH_MAX];
+    if (realpath(exe_path, resolved) == NULL) {
+        return -1;
+    }
+    snprintf(exe_path, sizeof(exe_path), "%s", resolved);
+#elif defined(__linux__)
+    /* Linux: use /proc/self/exe */
+    ssize_t n = readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
+    if (n == -1) {
+        return -1;
+    }
+    exe_path[n] = '\0';
+#else
+    /* Unsupported platform */
+    return -1;
+#endif
+
+    /* Extract directory from full path */
+    char *slash = strrchr(exe_path, '/');
+    if (!slash) {
+        return -1;
+    }
+    *slash = '\0';
+
+    /* Copy to output buffer */
+    if (strlen(exe_path) >= buflen) {
+        return -1;
+    }
+    snprintf(buf, buflen, "%s", exe_path);
+
+    return 0;
 }
 
 

@@ -44,5 +44,15 @@ void escape_path(const char *src, char *dst, size_t dst_size);
  */
 double get_video_duration(const char *video_path);
 
+/**
+ * @brief  Get the directory containing the executable (cross-platform).
+ *
+ * @param buf     Buffer to store the directory path.
+ * @param buflen  Size of the buffer.
+ *
+ * @return 0 on success, -1 on failure.
+ */
+int get_executable_dir(char *buf, size_t buflen);
+
 #endif /* PATH_UTIL_H */
 

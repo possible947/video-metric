@@ -24,7 +24,7 @@ BIN       := video_metric
 CC        := gcc
 CFLAGS    := -std=gnu11 -Wall -Wextra -O2 -I$(SRC_DIR) \
              -D_GNU_SOURCE -D_FORTIFY_SOURCE=2 -fstack-protector-strong
-LDFLAGS   :=
+LDFLAGS   := -lm
 
 #----------------------------------------------------------------------
 # Source files and corresponding object files
