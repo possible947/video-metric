@@ -29,5 +29,5 @@ Thumbs.db
 # Model files (if large)
 model/*.json
 
-# Test artifacts
-test_output/
+# CodeQL detection artifacts
+_codeql_detected_source_root
