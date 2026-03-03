@@ -32,6 +32,15 @@ static const char *get_ffmpeg_path(void)
 }
 
 /* ------------------------------------------------------------------ */
+/*  Helper: compute frame count from duration and fps                 */
+/* ------------------------------------------------------------------ */
+static int frames_from_duration(double duration_s, double fps)
+{
+    if (fps <= 0.0 || duration_s <= 0.0) return 0;
+    return (int)(duration_s * fps + 0.5);
+}
+
+/* ------------------------------------------------------------------ */
 /*  Get video metadata using ffmpeg -i                                */
 /* ------------------------------------------------------------------ */
 int get_video_info(const char *filepath, VideoInfo *info)
@@ -66,6 +75,11 @@ int get_video_info(const char *filepath, VideoInfo *info)
     info->num_frames = 0;
     info->fps = 0.0;
     strcpy(info->pix_fmt, "yuv420p");
+
+    /* Store duration separately: in ffmpeg output Duration appears BEFORE
+     * the Stream/Video line, so fps is still 0.0 when Duration is parsed.
+     * We save duration here and compute num_frames after fps is known. */
+    double total_duration = 0.0;
 
     while (fgets(line, sizeof(line), fp)) {
         /* Look for: "Stream #0:0: Video: h264 (High), yuv420p(tv, bt709), 3840x2160 [SAR 1:1 DAR 16:9], 29.97 fps" */
@@ -104,6 +118,12 @@ int get_video_info(const char *filepath, VideoInfo *info)
                     }
                 }
             }
+
+            /* If duration was already parsed before this Stream line,
+             * compute num_frames now that fps is known. */
+            if (info->fps > 0.0 && total_duration > 0.0) {
+                info->num_frames = frames_from_duration(total_duration, info->fps);
+            }
         }
         
         /* Look for Duration line to estimate frame count */
@@ -112,12 +132,19 @@ int get_video_info(const char *filepath, VideoInfo *info)
             int h = 0, m = 0;
             float s = 0.0f;
             if (sscanf(line, " Duration: %d:%d:%f", &h, &m, &s) == 3) {
-                double duration = h * 3600 + m * 60 + s;
+                total_duration = h * 3600 + m * 60 + s;
+                /* fps may already be known if Stream came first */
                 if (info->fps > 0.0) {
-                    info->num_frames = (int)(duration * info->fps + 0.5);
+                    info->num_frames = frames_from_duration(total_duration, info->fps);
                 }
             }
         }
+    }
+
+    /* Final fallback: compute num_frames if both values are available but
+     * num_frames was not set inside the loop (e.g. parsing order issues). */
+    if (info->num_frames == 0 && info->fps > 0.0 && total_duration > 0.0) {
+        info->num_frames = frames_from_duration(total_duration, info->fps);
     }
 
     pclose(fp);
