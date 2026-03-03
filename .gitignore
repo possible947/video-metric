@@ -31,3 +31,4 @@ model/*.json
 
 # CodeQL detection artifacts
 _codeql_detected_source_root
+ffmpeg
