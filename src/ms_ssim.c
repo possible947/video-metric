@@ -195,13 +195,20 @@ int compute_ms_ssim(const char *orig, const char *test, int threads, metric_stat
         /* Update progress bar */
         if (expected_frames > 0) {
             int percent = (frame_count * 100) / expected_frames;
-            print_progress_bar(percent);
+            if (percent <= 100) {
+                print_progress_bar(percent);
+            } else {
+                /* Beyond original estimate: keep updating with actual frame count
+                 * so the user can see computation is still making progress. */
+                printf("\r<100%%>####################");
+                printf(" [frame %d]", frame_count);
+                fflush(stdout);
+            }
         }
     }
 
-    printf("\r<%3d%%>", 99);
-    for (int i = 0; i < 20; i++) printf("#");
-    printf(" \n");
+    print_progress_bar(100);
+    printf("\n");
     fflush(stdout);
 
     /* Step 6: Compute statistics */

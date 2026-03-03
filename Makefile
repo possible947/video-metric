@@ -98,7 +98,7 @@ all: $(OBJ_DIR) $(BIN)
 # Build the executable
 #----------------------------------------------------------------------
 $(BIN): $(OBJS)
-	$(CC) $(LDFLAGS) -o $@ $^
+	$(CC) -o $@ $^ $(LDFLAGS)
 
 #----------------------------------------------------------------------
 # Compile each source file into the object directory
