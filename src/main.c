@@ -79,6 +79,14 @@ static void print_usage(const char *progname)
 }
 
 /* ------------------------------------------------------------------ */
+/*  Helper: free a pointer and set it to NULL                        */
+/* ------------------------------------------------------------------ */
+static void safe_free(void **ptr)
+{
+    if (*ptr) { free(*ptr); *ptr = NULL; }
+}
+
+/* ------------------------------------------------------------------ */
 /*  Main program                                                    */
 /* ------------------------------------------------------------------ */
 int main(int argc, char *argv[])
@@ -193,9 +201,6 @@ int main(int argc, char *argv[])
     /* ------------------------------------------------------------------ */
     /*  Clean up allocated strings                                       */
     /* ------------------------------------------------------------------ */
-    static inline void safe_free(void **ptr) {
-        if (*ptr) { free(*ptr); *ptr = NULL; }
-    }
     safe_free((void**)&opts.orig);
     safe_free((void**)&opts.test);
     safe_free((void**)&opts.resolution);

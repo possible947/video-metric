@@ -9,7 +9,7 @@ BIN       := video_metric
 
 # Compiler and flags
 CC        := gcc
-CFLAGS    := -std=gnu11 -Wall -Wextra -O2 -I$(SRC_DIR) \
+CFLAGS    := -std=gnu11 -Wall -Wextra -O2 -I. -I$(SRC_DIR) \
              -D_GNU_SOURCE -D_FORTIFY_SOURCE=2 -fstack-protector-strong
 LDFLAGS   := -lm
 
