@@ -223,8 +223,14 @@ ffmpeg: <status>, ssim: <status>, vmaf: <status>
 # Установить зависимости
 sudo apt-get install build-essential
 
+# Для GUI (GTK4)
+sudo apt-get install libgtk-4-dev
+
 # Сборка
 make
+
+# Только GUI бинарник
+make video_metric_gui
 
 # Очистка
 make clean
@@ -236,14 +242,23 @@ make clean
 # Установить Xcode Command Line Tools (если не установлены)
 xcode-select --install
 
+# Для GUI (через Homebrew или MacPorts)
+# Homebrew:
+#   brew install gtk4
+# MacPorts:
+#   sudo port install gtk4
+
 # Сборка
 make
+
+# Только GUI бинарник
+make video_metric_gui
 
 # Очистка
 make clean
 ```
 
-После сборки исполняемый файл `video_metric` будет находиться в корне проекта.
+После сборки исполняемые файлы `video_metric` и `video_metric_gui` будут находиться в корне проекта.
 
 **Примечание:** Бинарник `ffmpeg` должен быть помещен в корень проекта вручную (не входит в репозиторий).
 
@@ -254,8 +269,37 @@ make clean
 - **gcc** – GNU Compiler Collection (поддержка C11)
 - **make** – система сборки
 - **libm** – математическая библиотека (для MS-SSIM: `pow()`, `sqrt()`)
+- **gtk4** + **pkg-config** – только для бинарника `video_metric_gui`
 
 Дополнительные библиотеки **не требуются** (libavcodec, libavformat и т.д. не используются).
+
+---
+
+## 11. GTK4 GUI
+
+GUI-бинарник `video_metric_gui` реализует оболочку над CLI и запускает `./video_metric` как подпроцесс.
+
+### Возможности GUI (MVP)
+
+- выбор оригинального и тестового видео
+- выбор метрик: SSIM / MS-SSIM / VMAF
+- выбор разрешения для VMAF: `hd` или `4k`
+- ввод числа потоков
+- кнопки Run / Cancel
+- 2 progress bar: глобальный и текущей метрики
+- панель ошибок (скрыта по умолчанию)
+- 3 фрейма результатов (SSIM, MS-SSIM, VMAF) с Min/Max/Mean
+
+### Запуск GUI
+
+```bash
+./video_metric_gui
+```
+
+### Важно
+
+- GUI не заменяет CLI, а использует его текущий формат вывода.
+- Для корректной работы по-прежнему нужен локальный `ffmpeg` рядом с бинарниками.
 
 ---
 
