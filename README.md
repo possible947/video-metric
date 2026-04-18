@@ -10,7 +10,7 @@
 
 ## 1. Структура проекта
 
-```
+```text
 video_metric/
 ├── Makefile
 ├── config.h
@@ -60,12 +60,14 @@ video_metric/
 ### Статистика
 
 Все метрики вычисляются для каждого кадра и выводятся в виде:
+
 - **Min** – минимальное значение по всем кадрам
 - **Max** – максимальное значение по всем кадрам
 - **Mean** – среднее значение по всем кадрам
 
 Пример вывода:
-```
+
+```text
 SSIM - Min: 0.862503, Max: 0.904785, Mean: 0.892969
 MS-SSIM - Min: 0.996753, Max: 0.997313, Mean: 0.997075
 VMAF - Min: 94.004434, Max: 96.322506, Mean: 95.976802
@@ -106,7 +108,7 @@ GUI вычисляет метрики напрямую через те же фу
 
 Перед выполнением любой операции утилита выводит статус проверки окружения:
 
-```
+```text
 ffmpeg: <status>, ssim: <status>, vmaf: <status>
 ```
 
@@ -160,6 +162,7 @@ ffmpeg: <status>, ssim: <status>, vmaf: <status>
 **Метод:** FFmpeg фильтр `ssim` с параметром `stats_file` для покадровой статистики.
 
 Команда:
+
 ```bash
 ./ffmpeg -i "<original>" -i "<test>" \
 -vf "ssim=stats_file=ssim_stats_temp.log" \
@@ -173,6 +176,7 @@ ffmpeg: <status>, ssim: <status>, vmaf: <status>
 **Метод:** Декодирование через FFmpeg pipe и вычисление MS-SSIM в чистом C по алгоритму Wang et al. (2003).
 
 Алгоритм:
+
 1. Декодирование обоих видео в raw YUV через FFmpeg pipe
 2. Извлечение Y-plane (яркость) для каждого кадра
 3. Построение 5-уровневой Gaussian пирамиды
@@ -180,6 +184,7 @@ ffmpeg: <status>, ssim: <status>, vmaf: <status>
 5. Комбинирование уровней с весами: `{0.0448, 0.2856, 0.3001, 0.2363, 0.1333}`
 
 **Преимущества:**
+
 - Не требует специального ffmpeg фильтра
 - Полный контроль над алгоритмом
 - Поддержка любых форматов (через FFmpeg декодирование)
@@ -191,6 +196,7 @@ ffmpeg: <status>, ssim: <status>, vmaf: <status>
 **Метод:** FFmpeg фильтр `libvmaf` с XML выводом.
 
 Команда:
+
 ```bash
 ./ffmpeg -i "<original>" -i "<test>" \
 -filter_complex "[0:v][1:v]libvmaf=model=path=<model_path>:n_threads=<N>:log_path=vmaf.json" \
@@ -203,19 +209,19 @@ ffmpeg: <status>, ssim: <status>, vmaf: <status>
 
 ## 8. Формат запуска
 
-```
+```text
 ./video_metric [OPTIONS]
 ```
 
 ### Опции
 
 | Флаг | Псевдоним | Описание |
-|------|----------|----------|
+| ---- | --------- | -------- |
 | `-o` | `--output` | Путь к оригинальному видео (референс) |
-| `-t` | `--test`   | Путь к проверяемому видео |
-| `-s` | `--ssim`   | Вычислить SSIM |
-| `-m` | `--ms-ssim`| Вычислить MS-SSIM |
-| `-v` | `--vmaf`   | Вычислить VMAF |
+| `-t` | `--test` | Путь к проверяемому видео |
+| `-s` | `--ssim` | Вычислить SSIM |
+| `-m` | `--ms-ssim` | Вычислить MS-SSIM |
+| `-v` | `--vmaf` | Вычислить VMAF |
 | `-r` | `--resolution` | `hd` или `4k` (по умолчанию `hd`, только для VMAF) |
 | `-n` | `--num_threads` | Число потоков для FFmpeg |
 
@@ -294,13 +300,15 @@ make clean
 ```
 
 При запуске `make` консоль сообщает, какой компилятор выбран:
-```
+
+```text
 [compiler] MacPorts clang-mp-18 auto-selected
 [threading] OpenMP enabled (explicit)
 ```
 
 Если MacPorts clang не найден:
-```
+
+```text
 [compiler] MacPorts clang not found, using system cc + pthreads
 [threading] OpenMP not available, using pthreads
 ```
@@ -339,13 +347,15 @@ make MSSSIM_SINGLE_THREAD=yes
 ## 11. Архитектура
 
 ### SSIM и VMAF
-```
+
+```text
 CLI → FFmpeg Filter → Parse Output → Statistics
       (./ffmpeg)     (text parsing)   (min/max/mean)
 ```
 
 ### MS-SSIM
-```
+
+```text
 CLI → FFmpeg Pipe → Y-plane Extract → MS-SSIM Algorithm → Statistics
       (raw YUV)     (uint8→float)      (pure C)           (min/max/mean)
 ```
@@ -357,7 +367,7 @@ CLI → FFmpeg Pipe → Y-plane Extract → MS-SSIM Algorithm → Statistics
 Тестовое окружение: macOS, 4K видео (3840×2160), 30 fps
 
 | Метрика | Скорость (1 сек видео) | Многопоточность |
-|---------|------------------------|-----------------|
+| ------- | ---------------------- | --------------- |
 | SSIM | ~8 сек | Да (`-n` флаг) |
 | MS-SSIM | ~15-30 сек | Частично |
 | VMAF | ~2-3 мин | Да (`-n` флаг) |
@@ -379,5 +389,3 @@ CLI → FFmpeg Pipe → Y-plane Extract → MS-SSIM Algorithm → Statistics
 Проект распространяется под лицензией MIT. См. файл `LICENSE`.
 
 ---
-
-
