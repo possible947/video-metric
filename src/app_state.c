@@ -1,65 +1,42 @@
+/*====================================================================*/
+/*  FILE: src/app_state.c                                            */
+/*====================================================================*/
 #include "app_state.h"
 
 #include <stdlib.h>
 #include <string.h>
 
-static void metric_result_reset(metric_result *res)
+void app_state_init(app_state *s)
 {
-    if (!res) {
-        return;
-    }
-
-    res->available = FALSE;
-    res->min = 0.0;
-    res->max = 0.0;
-    res->mean = 0.0;
+    if (!s) return;
+    memset(s, 0, sizeof(*s));
+    s->resolution = strdup("hd");
+    s->num_threads = 0;
 }
 
-void app_state_init(app_state *state)
+void app_state_reset_results(app_state *s)
 {
-    if (!state) {
-        return;
-    }
-
-    memset(state, 0, sizeof(*state));
-    state->resolution = g_strdup("hd");
-    state->num_threads = 0;
-    state->running = FALSE;
-
-    app_state_reset_results(state);
+    if (!s) return;
+    memset(&s->ssim,    0, sizeof(s->ssim));
+    memset(&s->ms_ssim, 0, sizeof(s->ms_ssim));
+    memset(&s->vmaf,    0, sizeof(s->vmaf));
 }
 
-void app_state_reset_results(app_state *state)
+void app_state_free(app_state *s)
 {
-    if (!state) {
-        return;
-    }
-
-    metric_result_reset(&state->ssim);
-    metric_result_reset(&state->ms_ssim);
-    metric_result_reset(&state->vmaf);
+    if (!s) return;
+    free(s->orig_path);
+    free(s->test_path);
+    free(s->resolution);
+    s->orig_path  = NULL;
+    s->test_path  = NULL;
+    s->resolution = NULL;
 }
 
-void app_state_clear_paths(app_state *state)
+int app_state_count_metrics(const app_state *s)
 {
-    if (!state) {
-        return;
-    }
-
-    g_free(state->orig_path);
-    g_free(state->test_path);
-    state->orig_path = NULL;
-    state->test_path = NULL;
+    if (!s) return 0;
+    return (s->use_ssim ? 1 : 0)
+         + (s->use_ms_ssim ? 1 : 0)
+         + (s->use_vmaf ? 1 : 0);
 }
-
-void app_state_free(app_state *state)
-{
-    if (!state) {
-        return;
-    }
-
-    app_state_clear_paths(state);
-    g_free(state->resolution);
-    state->resolution = NULL;
-}
-

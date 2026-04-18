@@ -9,13 +9,13 @@
  *
  * @param orig        Path to the reference (original) video.
  * @param test        Path to the distorted (test) video.
- * @param model_path  Path to the VMAF model JSON file
- *                    (e.g. "model/vmaf_v0.6.1.json" or "model/vmaf_4k_v0.6.1.json").
- * @param threads     Number of threads for libvmaf (n_threads).
- *                    If threads <= 0, a default of 1 is used.
+ * @param model_path  Path to the VMAF model JSON file.
+ * @param threads     Number of threads for libvmaf (n_threads). 0 = default 1.
  * @param json_path   Output buffer for the log file path ("vmaf.json").
  * @param json_bufsize Size of the json_path buffer.
  * @param stats       Output structure for min, max, mean VMAF scores.
+ * @param progress_cb Optional progress callback (NULL = print to stdout).
+ * @param cb_userdata Opaque pointer forwarded to progress_cb.
  *
  * @return 0 on success, -1 on failure.
  */
@@ -25,7 +25,9 @@ int compute_vmaf(const char *orig,
                  int         threads,
                  char       *json_path,
                  size_t      json_bufsize,
-                 metric_stats *stats);
+                 metric_stats *stats,
+                 metric_progress_cb progress_cb,
+                 void *cb_userdata);
 
 #endif /* VMAF_H */
 

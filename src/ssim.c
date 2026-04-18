@@ -37,7 +37,15 @@ static const char *get_ffmpeg_path(void)
     if (access("./ffmpeg", X_OK) == 0)
         return "./ffmpeg";
 
-    /* Per project spec: do NOT fall back to system ffmpeg */
+    /* GUI may run from a different cwd; check the executable's directory */
+    static char exe_ffmpeg[PATH_MAX];
+    char exe_dir[PATH_MAX];
+    if (get_executable_dir(exe_dir, sizeof(exe_dir)) == 0) {
+        snprintf(exe_ffmpeg, sizeof(exe_ffmpeg), "%s/ffmpeg", exe_dir);
+        if (access(exe_ffmpeg, X_OK) == 0)
+            return exe_ffmpeg;
+    }
+
     return NULL;
 }
 
@@ -144,7 +152,9 @@ static void print_progress_bar(int percent)
 /* ------------------------------------------------------------------ */
 /*  Compute SSIM                                                      */
 /* ------------------------------------------------------------------ */
-int compute_ssim(const char *orig, const char *test, int threads, metric_stats *stats)
+int compute_ssim(const char *orig, const char *test, int threads,
+                 metric_stats *stats,
+                 metric_progress_cb progress_cb, void *cb_userdata)
 {
     if (!orig || !test || !stats) {
         fprintf(stderr, "compute_ssim: NULL input path or stats\n");
@@ -260,7 +270,10 @@ int compute_ssim(const char *orig, const char *test, int threads, metric_stats *
                 if (current_time >= 0.0) {
                     int percent = (int)(100.0 * current_time / total_duration);
                     if (percent > 100) percent = 100;
-                    print_progress_bar(percent);
+                    if (progress_cb)
+                        progress_cb(percent, cb_userdata);
+                    else
+                        print_progress_bar(percent);
                 }
             }
         }
@@ -273,7 +286,10 @@ int compute_ssim(const char *orig, const char *test, int threads, metric_stats *
 
     /* Clear progress bar and print newline */
     if (total_duration > 0.0) {
-        printf("\n");
+        if (progress_cb)
+            progress_cb(100, cb_userdata);
+        else
+            printf("\n");
     }
 
     /* Check process exit status */

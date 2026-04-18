@@ -1,3 +1,6 @@
+/*====================================================================*/
+/*  FILE: src/ui_main.h                                              */
+/*====================================================================*/
 #ifndef UI_MAIN_H
 #define UI_MAIN_H
 
@@ -5,5 +8,4 @@
 
 void ui_main_activate(GtkApplication *app, gpointer user_data);
 
-#endif
-
+#endif /* UI_MAIN_H */

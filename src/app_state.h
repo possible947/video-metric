@@ -1,35 +1,55 @@
+/*====================================================================*/
+/*  FILE: src/app_state.h                                            */
+/*====================================================================*/
 #ifndef APP_STATE_H
 #define APP_STATE_H
 
-#include <glib.h>
+#include "metrics_common.h"
 
-typedef struct metric_result {
-    gboolean available;
-    double min;
-    double max;
-    double mean;
+/* ------------------------------------------------------------------ */
+/*  Per-metric result                                                  */
+/* ------------------------------------------------------------------ */
+typedef struct {
+    int          available; /* 1 when result has been computed */
+    metric_stats stats;
 } metric_result;
 
-typedef struct app_state {
+/* ------------------------------------------------------------------ */
+/*  Application state (UI-owned, accessed only from the main thread)  */
+/* ------------------------------------------------------------------ */
+typedef struct {
+    /* --- Input paths --- */
     char *orig_path;
     char *test_path;
-    gboolean use_ssim;
-    gboolean use_ms_ssim;
-    gboolean use_vmaf;
-    char *resolution;
-    int num_threads;
 
-    gboolean running;
+    /* --- Metric selection --- */
+    int use_ssim;
+    int use_ms_ssim;
+    int use_vmaf;
 
+    /* --- VMAF options --- */
+    char *resolution;   /* "hd" or "4k" */
+
+    /* --- Threading --- */
+    int num_threads;    /* 0 = let ffmpeg decide */
+
+    /* --- Runtime --- */
+    int running;        /* 1 while worker is active */
+
+    /* --- Results --- */
     metric_result ssim;
     metric_result ms_ssim;
     metric_result vmaf;
 } app_state;
 
-void app_state_init(app_state *state);
-void app_state_reset_results(app_state *state);
-void app_state_clear_paths(app_state *state);
-void app_state_free(app_state *state);
+/* ------------------------------------------------------------------ */
+/*  Lifecycle                                                          */
+/* ------------------------------------------------------------------ */
+void app_state_init(app_state *s);
+void app_state_reset_results(app_state *s);
+void app_state_free(app_state *s);
 
-#endif
+/* Returns the number of metrics currently selected (0-3). */
+int  app_state_count_metrics(const app_state *s);
 
+#endif /* APP_STATE_H */

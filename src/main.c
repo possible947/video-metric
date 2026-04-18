@@ -126,7 +126,8 @@ int main(int argc, char *argv[])
 
         metric_stats ssim_stats;
         int rc_ssim = compute_ssim(opts.orig, opts.test,
-                                   opts.num_threads, &ssim_stats);
+                                   opts.num_threads, &ssim_stats,
+                                   NULL, NULL);
         if (rc_ssim != 0) {
             fprintf(stderr, "Error: SSIM computation failed\n");
             return EXIT_FAILURE;
@@ -141,7 +142,8 @@ int main(int argc, char *argv[])
 
         metric_stats ms_ssim_stats;
         int rc_ms_ssim = compute_ms_ssim(opts.orig, opts.test,
-                                         opts.num_threads, &ms_ssim_stats);
+                                         opts.num_threads, &ms_ssim_stats,
+                                         NULL, NULL);
         if (rc_ms_ssim != 0) {
             fprintf(stderr,
                     "Warning: MS-SSIM computation failed "
@@ -189,7 +191,7 @@ int main(int argc, char *argv[])
         int rc_vmaf = compute_vmaf(opts.orig, opts.test,
                                    model_file, opts.num_threads,
                                    json_path, sizeof(json_path),
-                                   &vmaf_stats);
+                                   &vmaf_stats, NULL, NULL);
         if (rc_vmaf != 0) {
             fprintf(stderr, "Error: VMAF computation failed\n");
             return EXIT_FAILURE;

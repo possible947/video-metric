@@ -1,6 +1,8 @@
 # Video Metric
 
-**Video Metric** – консольная утилита для Linux и macOS, написанная на GNU‑C, которая сравнивает два видеофайла и выводит метрики качества: **SSIM** (Structural Similarity Index), **MS-SSIM** (Multi-Scale SSIM) или **VMAF** (Video Multi‑Method Assessment Fusion). Утилита использует локальный `ffmpeg`, расположенный рядом с исполняемым файлом, и пред‑обученные модели VMAF.
+**Video Metric** – утилита для Linux и macOS, написанная на GNU‑C, которая сравнивает два видеофайла и выводит метрики качества: **SSIM** (Structural Similarity Index), **MS-SSIM** (Multi-Scale SSIM) или **VMAF** (Video Multi‑Method Assessment Fusion). Утилита использует локальный `ffmpeg`, расположенный рядом с исполняемым файлом, и пред‑обученные модели VMAF.
+
+Доступны два режима работы: **консольный** (`video_metric`) и **графический** (`video_metric_gui`) — GTK4-приложение с прогресс-барами и наглядным отображением результатов.
 
 Все метрики вычисляются покадрово и выводятся в виде **min/max/mean** статистики.
 
@@ -11,28 +13,37 @@
 ```
 video_metric/
 ├── Makefile
+├── config.h
 ├── src/
-│   ├── main.c              # Основной файл программы
+│   ├── main.c              # Точка входа CLI и оркестратор
 │   ├── cli_parser.c        # Парсинг аргументов командной строки
 │   ├── cli_options.h       # Структура опций CLI
-│   ├── env_check.c         # Проверка окружения
+│   ├── env_check.c         # Проверка окружения (ffmpeg, фильтры, модели)
 │   ├── path_util.c         # Утилиты для работы с путями
-│   ├── ssim.c              # Вычисление SSIM
+│   ├── ssim.c              # Вычисление SSIM через FFmpeg-фильтр
 │   ├── ssim.h
-│   ├── vmaf.c              # Вычисление VMAF
+│   ├── vmaf.c              # Вычисление VMAF через FFmpeg-фильтр
 │   ├── vmaf.h
-│   ├── ms_ssim.c           # Вычисление MS-SSIM
+│   ├── ms_ssim.c           # Вычисление MS-SSIM (оркестратор)
 │   ├── ms_ssim.h
 │   ├── msssim_core.c       # Алгоритм MS-SSIM (чистый C)
 │   ├── msssim_core.h
-│   ├── pipe_decoder.c      # FFmpeg pipe декодер
+│   ├── pipe_decoder.c      # FFmpeg pipe-декодер для MS-SSIM
 │   ├── pipe_decoder.h
-│   └── metrics_common.h    # Общая структура статистики
+│   ├── metrics_common.h    # Общая структура статистики и progress_cb
+│   ├── gui_main.c          # Точка входа GUI-приложения
+│   ├── ui_main.c           # GTK4 окно, виджеты, обработчики событий
+│   ├── ui_main.h
+│   ├── worker.c            # Фоновые вычисления (GTask)
+│   ├── worker.h
+│   ├── app_state.c         # Состояние приложения
+│   └── app_state.h
 ├── model/
 │   ├── vmaf_v0.6.1.json        # Модель VMAF для HD
 │   └── vmaf_4k_v0.6.1.json     # Модель VMAF для 4K
-├── video_metric            # Компилируемый бинарник
-├── ffmpeg                  # Локальный бинарник FFmpeg
+├── video_metric            # Скомпилированный CLI-бинарник
+├── video_metric_gui        # Скомпилированный GUI-бинарник
+├── ffmpeg                  # Локальный бинарник FFmpeg (не входит в репозиторий)
 └── README.md
 ```
 
@@ -63,7 +74,31 @@ VMAF - Min: 94.004434, Max: 96.322506, Mean: 95.976802
 ### Поддерживаемые платформы
 
 - **Linux** – основная платформа разработки
-- **macOS** – полная поддержка (ARM64 и x86_64)
+- **macOS** – полная поддержка (ARM64 и x86_64), включая GTK4-GUI через MacPorts
+
+---
+
+## 3. GUI-приложение (video_metric_gui)
+
+`video_metric_gui` — GTK4-приложение с Quartz-бэкендом на macOS.
+
+### Возможности GUI
+
+- Выбор файлов через диалог
+- Переключатели метрик: SSIM / MS-SSIM / VMAF
+- Выбор разрешения VMAF: HD (1080p) / 4K (2160p)
+- Настройка числа потоков
+- Два прогресс-бара: общий (`Step N/M`) и текущей метрики (`%`)
+- Кнопка отмены
+- Панель результатов (Min / Max / Mean для каждой метрики)
+- Автоматическое следование светлой/тёмной теме ОС
+
+### Требования для GUI
+
+- **macOS:** MacPorts + `sudo port install gtk4 +quartz`
+- **Linux:** системный пакет `libgtk-4-dev` (apt) / `gtk4-devel` (dnf)
+
+GUI вычисляет метрики напрямую через те же функции, что и CLI — без запуска дочернего процесса.
 
 ---
 
@@ -181,7 +216,7 @@ ffmpeg: <status>, ssim: <status>, vmaf: <status>
 | `-s` | `--ssim`   | Вычислить SSIM |
 | `-m` | `--ms-ssim`| Вычислить MS-SSIM |
 | `-v` | `--vmaf`   | Вычислить VMAF |
-| `-r` | `--resolution` | `hd` или `4k` (по умолчанию `4k`, только для VMAF) |
+| `-r` | `--resolution` | `hd` или `4k` (по умолчанию `hd`, только для VMAF) |
 | `-n` | `--num_threads` | Число потоков для FFmpeg |
 
 ### Поведение по умолчанию
@@ -223,83 +258,81 @@ ffmpeg: <status>, ssim: <status>, vmaf: <status>
 # Установить зависимости
 sudo apt-get install build-essential
 
-# Для GUI (GTK4)
-sudo apt-get install libgtk-4-dev
-
-# Сборка
+# Сборка CLI (OpenMP определяется автоматически)
 make
 
-# Только GUI бинарник
-make video_metric_gui
+# Сборка GUI (требует GTK4)
+sudo apt-get install libgtk-4-dev
+make gui
 
 # Очистка
 make clean
 ```
 
-### macOS
+### macOS (MacPorts)
+
+Мake **автоматически** определяет MacPorts clang (версии 18 → 20 → 16 → 14) и включает OpenMP. Вмешательство не требуется.
 
 ```bash
-# Установить Xcode Command Line Tools (если не установлены)
-xcode-select --install
+# Установить MacPorts: https://www.macports.org/install.php
 
-# Для GUI (через Homebrew или MacPorts)
-# Homebrew:
-#   brew install gtk4
-# MacPorts:
-#   sudo port install gtk4
+# Установить clang с OpenMP (один раз)
+sudo port install clang-18      # или актуальную версию
 
-# Сборка
+# Сборка CLI — компилятор и OpenMP выбираются автоматически
 make
 
-# Только GUI бинарник
-make video_metric_gui
+# Сборка GUI — дополнительно нужен GTK4
+sudo port install gtk4 +quartz
+make gui
+
+# Сборка обоих бинарников
+make && make gui
 
 # Очистка
 make clean
 ```
 
-После сборки исполняемые файлы `video_metric` и `video_metric_gui` будут находиться в корне проекта.
+При запуске `make` консоль сообщает, какой компилятор выбран:
+```
+[compiler] MacPorts clang-mp-18 auto-selected
+[threading] OpenMP enabled (explicit)
+```
 
-**Примечание:** Бинарник `ffmpeg` должен быть помещен в корень проекта вручную (не входит в репозиторий).
+Если MacPorts clang не найден:
+```
+[compiler] MacPorts clang not found, using system cc + pthreads
+[threading] OpenMP not available, using pthreads
+```
+
+#### Явное управление компилятором и потоками
+
+```bash
+# Конкретная версия clang
+make CC=clang-mp-20
+
+# Принудительно pthreads (например, для системного clang)
+make MSSSIM_USE_OPENMP=no
+
+# Принудительно OpenMP
+make CC=clang-mp-18 MSSSIM_USE_OPENMP=yes
+
+# Однопоточная сборка (отладка)
+make MSSSIM_SINGLE_THREAD=yes
+```
+
+**Примечание:** Бинарник `ffmpeg` должен быть помещён в корень проекта вручную (не входит в репозиторий).
 
 ---
 
 ## 10. Зависимости времени компиляции
 
-- **gcc** – GNU Compiler Collection (поддержка C11)
+- **gcc** или **clang** – поддержка C11 (`-std=gnu11`)
 - **make** – система сборки
 - **libm** – математическая библиотека (для MS-SSIM: `pow()`, `sqrt()`)
-- **gtk4** + **pkg-config** – только для бинарника `video_metric_gui`
+- **pthreads** или **OpenMP** – многопоточность (выбирается автоматически или явно)
 
 Дополнительные библиотеки **не требуются** (libavcodec, libavformat и т.д. не используются).
-
----
-
-## 11. GTK4 GUI
-
-GUI-бинарник `video_metric_gui` реализует оболочку над CLI и запускает `./video_metric` как подпроцесс.
-
-### Возможности GUI (MVP)
-
-- выбор оригинального и тестового видео
-- выбор метрик: SSIM / MS-SSIM / VMAF
-- выбор разрешения для VMAF: `hd` или `4k`
-- ввод числа потоков
-- кнопки Run / Cancel
-- 2 progress bar: глобальный и текущей метрики
-- панель ошибок (скрыта по умолчанию)
-- 3 фрейма результатов (SSIM, MS-SSIM, VMAF) с Min/Max/Mean
-
-### Запуск GUI
-
-```bash
-./video_metric_gui
-```
-
-### Важно
-
-- GUI не заменяет CLI, а использует его текущий формат вывода.
-- Для корректной работы по-прежнему нужен локальный `ffmpeg` рядом с бинарниками.
 
 ---
 
@@ -335,8 +368,8 @@ CLI → FFmpeg Pipe → Y-plane Extract → MS-SSIM Algorithm → Statistics
 
 ## 13. Известные ограничения
 
-1. **MS-SSIM** не имеет SIMD/OpenMP оптимизаций (возможная оптимизация: 3-5x ускорение)
-2. **VMAF** может быть медленным на больших видео (зависит от libvmaf FFmpeg)
+1. **MS-SSIM** без OpenMP работает однопоточно (используйте MacPorts clang для 3–5x ускорения)
+2. **VMAF** может быть медленным на больших видео (зависит от libvmaf в FFmpeg)
 3. **Минимальное разрешение для MS-SSIM:** 176×144 (требование 5-уровневой пирамиды)
 
 ---
@@ -347,9 +380,4 @@ CLI → FFmpeg Pipe → Y-plane Extract → MS-SSIM Algorithm → Statistics
 
 ---
 
-## 15. Дополнительные файлы
 
-- **TEST_RESULTS.md** – результаты тестирования на реальных видео
-- **MS_SSIM_INTEGRATION_PLAN.md** – анализ и план интеграции MS-SSIM
-- **PROGRESS_BAR_ANALYSIS.md** – анализ progress bar для различных метрик
-- **ERROR_REPORT.md** – отчет об ошибках и их исправлениях

@@ -27,7 +27,16 @@ static const char *get_ffmpeg_path(void)
 {
     if (access("./ffmpeg", X_OK) == 0)
         return "./ffmpeg";
-    
+
+    /* GUI may run from a different cwd; check the executable's directory */
+    static char exe_ffmpeg[PATH_MAX];
+    char exe_dir[PATH_MAX];
+    if (get_executable_dir(exe_dir, sizeof(exe_dir)) == 0) {
+        snprintf(exe_ffmpeg, sizeof(exe_ffmpeg), "%s/ffmpeg", exe_dir);
+        if (access(exe_ffmpeg, X_OK) == 0)
+            return exe_ffmpeg;
+    }
+
     return NULL;
 }
 
