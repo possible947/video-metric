@@ -29,6 +29,12 @@ Thumbs.db
 # Model files (if large)
 model/*.json
 
+# Compiled binaries
+video_metric_gui
+
+# Bundled FFmpeg binaries
+ffmpeg
+ffprobe
+
 # CodeQL detection artifacts
 _codeql_detected_source_root
-ffmpeg
