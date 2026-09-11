@@ -41,8 +41,8 @@ static const char *get_ffmpeg_path(void)
     static char exe_ffmpeg[PATH_MAX];
     char exe_dir[PATH_MAX];
     if (get_executable_dir(exe_dir, sizeof(exe_dir)) == 0) {
-        snprintf(exe_ffmpeg, sizeof(exe_ffmpeg), "%s/ffmpeg", exe_dir);
-        if (access(exe_ffmpeg, X_OK) == 0)
+        int n = snprintf(exe_ffmpeg, sizeof(exe_ffmpeg), "%s/ffmpeg", exe_dir);
+        if (n > 0 && (size_t)n < sizeof(exe_ffmpeg) && access(exe_ffmpeg, X_OK) == 0)
             return exe_ffmpeg;
     }
 

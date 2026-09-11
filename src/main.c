@@ -168,13 +168,14 @@ int main(int argc, char *argv[])
         }
 
         char model_file[PATH_MAX];
+        int model_n;
         if (strcmp(opts.resolution, "hd") == 0) {
-            snprintf(model_file, sizeof(model_file),
+            model_n = snprintf(model_file, sizeof(model_file),
                      "%s%cmodel%cvmaf_v0.6.1.json",
                      exec_dir, PATH_SEPARATOR,
                      PATH_SEPARATOR);
         } else if (strcmp(opts.resolution, "4k") == 0) {
-            snprintf(model_file, sizeof(model_file),
+            model_n = snprintf(model_file, sizeof(model_file),
                      "%s%cmodel%cvmaf_4k_v0.6.1.json",
                      exec_dir, PATH_SEPARATOR,
                      PATH_SEPARATOR);
@@ -182,6 +183,10 @@ int main(int argc, char *argv[])
             fprintf(stderr,
                     "Error: unsupported resolution '%s'\n",
                     opts.resolution);
+            return EXIT_FAILURE;
+        }
+        if (model_n < 0 || (size_t)model_n >= sizeof(model_file)) {
+            fprintf(stderr, "Error: model path too long\n");
             return EXIT_FAILURE;
         }
 
