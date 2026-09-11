@@ -73,6 +73,16 @@ static void on_metric_progress(int percent, void *userdata)
     post_event(pc->rc, ev);
 }
 
+static const char *vmaf_backend_short_name(void)
+{
+    const char *backend = vmaf_get_last_backend();
+    if (backend && strstr(backend, "CUDA"))
+        return "cuda";
+    if (backend && strstr(backend, "CPU"))
+        return "cpu";
+    return "";
+}
+
 /* ------------------------------------------------------------------ */
 /*  Thread function                                                    */
 /* ------------------------------------------------------------------ */
@@ -208,6 +218,7 @@ static void worker_thread(GTask        *task,
             ev->step_index  = step;
             ev->total_steps = rc->total_steps;
             ev->stats       = stats;
+            g_strlcpy(ev->backend, vmaf_backend_short_name(), sizeof(ev->backend));
             post_event(rc, ev);
         } else {
             worker_event *ev = g_new0(worker_event, 1);

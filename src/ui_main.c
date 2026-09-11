@@ -83,6 +83,7 @@ typedef struct {
     /* Result labels – each metric has min/max/mean */
     GtkWidget *ssim_min,    *ssim_max,    *ssim_mean;
     GtkWidget *ms_ssim_min, *ms_ssim_max, *ms_ssim_mean;
+    GtkWidget *vmaf_frame;
     GtkWidget *vmaf_min,    *vmaf_max,    *vmaf_mean;
 } ui_ctx;
 
@@ -136,6 +137,7 @@ static void reset_result_labels(ui_ctx *ctx)
     gtk_label_set_text(GTK_LABEL(ctx->vmaf_min),    dash);
     gtk_label_set_text(GTK_LABEL(ctx->vmaf_max),    dash);
     gtk_label_set_text(GTK_LABEL(ctx->vmaf_mean),   dash);
+    gtk_frame_set_label(GTK_FRAME(ctx->vmaf_frame), "VMAF");
 }
 
 static void refresh_sensitivity(ui_ctx *ctx)
@@ -217,6 +219,11 @@ static gboolean worker_idle_dispatch(gpointer data)
         case WORKER_METRIC_VMAF:
             ctx->state.vmaf.available = 1;
             ctx->state.vmaf.stats     = ev->stats;
+            if (ev->backend[0]) {
+                char title[32];
+                g_snprintf(title, sizeof(title), "VMAF (%s)", ev->backend);
+                gtk_frame_set_label(GTK_FRAME(ctx->vmaf_frame), title);
+            }
             set_result_labels(ctx->vmaf_min, ctx->vmaf_max, ctx->vmaf_mean,
                               &ev->stats);
             break;
@@ -683,18 +690,18 @@ static void build_window(ui_ctx *ctx, GtkApplication *app)
                                                    &ctx->ms_ssim_min,
                                                    &ctx->ms_ssim_max,
                                                    &ctx->ms_ssim_mean);
-        GtkWidget *vmaf_frame = make_result_frame("VMAF",
-                                                   &ctx->vmaf_min,
-                                                   &ctx->vmaf_max,
-                                                   &ctx->vmaf_mean);
+        ctx->vmaf_frame = make_result_frame("VMAF",
+                                            &ctx->vmaf_min,
+                                            &ctx->vmaf_max,
+                                            &ctx->vmaf_mean);
 
         gtk_widget_set_hexpand(ssim_frame, TRUE);
         gtk_widget_set_hexpand(ms_frame,   TRUE);
-        gtk_widget_set_hexpand(vmaf_frame, TRUE);
+        gtk_widget_set_hexpand(ctx->vmaf_frame, TRUE);
 
         gtk_box_append(GTK_BOX(res_box), ssim_frame);
         gtk_box_append(GTK_BOX(res_box), ms_frame);
-        gtk_box_append(GTK_BOX(res_box), vmaf_frame);
+        gtk_box_append(GTK_BOX(res_box), ctx->vmaf_frame);
         gtk_box_append(GTK_BOX(main_box), res_box);
     }
 }

@@ -36,6 +36,7 @@ typedef struct {
 
     /* WORKER_EVENT_METRIC_DONE */
     metric_stats       stats;
+    char               backend[16];  /* VMAF only: "cpu", "cuda", or empty */
 
     /* WORKER_EVENT_METRIC_ERROR / ALL_DONE */
     char               message[256];

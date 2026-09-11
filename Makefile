@@ -140,7 +140,11 @@ endif
 clean:
 	@echo "Removing build artefacts..."
 	rm -f $(CLI_OBJS) $(GUI_OBJS) $(BIN) $(GUI_BIN)
-	rmdir /S /Q $(OBJ_DIR) 2>nul || rm -rf $(OBJ_DIR)
+ifeq ($(OS),Windows_NT)
+	-rmdir /S /Q $(OBJ_DIR) 2>NUL
+else
+	rm -rf $(OBJ_DIR)
+endif
 	rm -f vmaf_*.json
 	@echo "Done."
 
