@@ -201,6 +201,7 @@ int main(int argc, char *argv[])
             fprintf(stderr, "Error: VMAF computation failed\n");
             return EXIT_FAILURE;
         }
+        printf("VMAF backend: %s\n", vmaf_get_last_backend());
         printf("VMAF - Min: %.6f, Max: %.6f, Mean: %.6f\n",
                vmaf_stats.min, vmaf_stats.max, vmaf_stats.mean);
     }

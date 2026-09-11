@@ -55,6 +55,29 @@ static const char *get_ffmpeg_path(void)
     return NULL;
 }
 
+static const char *get_ffprobe_path(void)
+{
+    if (access("./ffprobe", X_OK) == 0)
+        return "./ffprobe";
+
+    static char exe_ffprobe[PATH_MAX];
+    char exe_dir[PATH_MAX];
+    if (get_executable_dir(exe_dir, sizeof(exe_dir)) == 0) {
+        int n = snprintf(exe_ffprobe, sizeof(exe_ffprobe), "%s/ffprobe", exe_dir);
+        if (n > 0 && (size_t)n < sizeof(exe_ffprobe) && access(exe_ffprobe, X_OK) == 0)
+            return exe_ffprobe;
+    }
+
+    return NULL;
+}
+
+static const char *last_vmaf_backend = "unknown";
+
+const char *vmaf_get_last_backend(void)
+{
+    return last_vmaf_backend;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Helper: parse time string "HH:MM:SS.xx" and return seconds       */
 /* ------------------------------------------------------------------ */
@@ -163,6 +186,77 @@ static int cuda_vmaf_available(const char *ffmpeg, const char *esc_model)
     cached_available = command_succeeded(system(cmd));
     remove("vmaf_cuda_probe.xml");
     return cached_available;
+}
+
+static void trim_line(char *value)
+{
+    if (!value)
+        return;
+
+    size_t len = strlen(value);
+    while (len > 0 && isspace((unsigned char)value[len - 1])) {
+        value[len - 1] = '\0';
+        len--;
+    }
+}
+
+static int read_video_pix_fmt(const char *video_path, char *pix_fmt, size_t pix_fmt_size)
+{
+    const char *ffprobe = get_ffprobe_path();
+    if (!ffprobe || !video_path || !pix_fmt || pix_fmt_size == 0)
+        return -1;
+
+    char esc_ffprobe[PATH_MAX];
+    char esc_video[PATH_MAX];
+    escape_path(ffprobe, esc_ffprobe, sizeof(esc_ffprobe));
+    escape_path(video_path, esc_video, sizeof(esc_video));
+
+    char cmd[4096];
+    int n = snprintf(
+        cmd, sizeof(cmd),
+        "%s -v error -select_streams v:0 "
+        "-show_entries stream=pix_fmt "
+        "-of default=noprint_wrappers=1:nokey=1 %s 2>/dev/null",
+        esc_ffprobe,
+        esc_video
+    );
+    if (n < 0 || (size_t)n >= sizeof(cmd))
+        return -1;
+
+    FILE *fp = popen(cmd, "r");
+    if (!fp)
+        return -1;
+
+    int ok = 0;
+    if (fgets(pix_fmt, (int)pix_fmt_size, fp)) {
+        trim_line(pix_fmt);
+        ok = pix_fmt[0] != '\0';
+    }
+
+    int status = pclose(fp);
+    return ok && command_succeeded(status) ? 0 : -1;
+}
+
+static int cuda_vmaf_inputs_compatible(const char *orig, const char *test)
+{
+    char orig_pix_fmt[64];
+    char test_pix_fmt[64];
+
+    if (read_video_pix_fmt(orig, orig_pix_fmt, sizeof(orig_pix_fmt)) != 0 ||
+        read_video_pix_fmt(test, test_pix_fmt, sizeof(test_pix_fmt)) != 0) {
+        fprintf(stderr,
+                "compute_vmaf: cannot verify input pixel formats for CUDA VMAF, using CPU VMAF\n");
+        return 0;
+    }
+
+    if (strcmp(orig_pix_fmt, "yuv420p") == 0 && strcmp(test_pix_fmt, "yuv420p") == 0)
+        return 1;
+
+    fprintf(stderr,
+            "compute_vmaf: CUDA VMAF requires yuv420p inputs, got %s and %s; using CPU VMAF\n",
+            orig_pix_fmt,
+            test_pix_fmt);
+    return 0;
 }
 
 /* ------------------------------------------------------------------ */
@@ -364,6 +458,8 @@ int compute_vmaf(const char *orig,
         return -1;
     }
 
+    last_vmaf_backend = "unknown";
+
     /* Initialize stats */
     stats->min = INFINITY;
     stats->max = -INFINITY;
@@ -426,7 +522,13 @@ int compute_vmaf(const char *orig,
         return -1;
     }
 
-    if (backend_mode != VMAF_BACKEND_CPU && cuda_vmaf_available(ffmpeg, esc_model)) {
+    int cuda_inputs_ok = 0;
+    if (backend_mode != VMAF_BACKEND_CPU)
+        cuda_inputs_ok = cuda_vmaf_inputs_compatible(orig, test);
+
+    if (backend_mode != VMAF_BACKEND_CPU &&
+        cuda_inputs_ok &&
+        cuda_vmaf_available(ffmpeg, esc_model)) {
         char cuda_cmd[8192];
         int cuda_n = snprintf(
             cuda_cmd, sizeof(cuda_cmd),
@@ -449,24 +551,26 @@ int compute_vmaf(const char *orig,
             remove(json_path);
             if (run_vmaf_command(cuda_cmd, json_path, total_duration, stats,
                                  progress_cb, cb_userdata) == 0) {
-                fprintf(stderr, "compute_vmaf: used CUDA VMAF backend\n");
+                last_vmaf_backend = "CUDA libvmaf_cuda";
                 return 0;
             }
 
             if (backend_mode == VMAF_BACKEND_CUDA) {
-                fprintf(stderr, "compute_vmaf: CUDA VMAF backend failed\n");
-                return -1;
+                fprintf(stderr, "compute_vmaf: CUDA VMAF backend failed, using CPU VMAF\n");
+            } else {
+                fprintf(stderr,
+                        "compute_vmaf: CUDA VMAF failed, falling back to CPU VMAF\n");
             }
-            fprintf(stderr,
-                    "compute_vmaf: CUDA VMAF failed, falling back to CPU VMAF\n");
         }
-    } else if (backend_mode == VMAF_BACKEND_CUDA) {
-        fprintf(stderr, "compute_vmaf: CUDA VMAF backend is not available\n");
-        return -1;
+    } else if (backend_mode == VMAF_BACKEND_CUDA && cuda_inputs_ok) {
+        fprintf(stderr, "compute_vmaf: CUDA VMAF backend is not available, using CPU VMAF\n");
     }
 
     remove(json_path);
-    return run_vmaf_command(cmd, json_path, total_duration, stats,
-                            progress_cb, cb_userdata);
+    int rc = run_vmaf_command(cmd, json_path, total_duration, stats,
+                              progress_cb, cb_userdata);
+    if (rc == 0)
+        last_vmaf_backend = "CPU libvmaf";
+    return rc;
 }
 

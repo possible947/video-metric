@@ -29,5 +29,11 @@ int compute_vmaf(const char *orig,
                  metric_progress_cb progress_cb,
                  void *cb_userdata);
 
+/**
+ * Return the backend used by the most recent successful compute_vmaf() call.
+ * The returned string is static storage owned by the VMAF module.
+ */
+const char *vmaf_get_last_backend(void);
+
 #endif /* VMAF_H */
 

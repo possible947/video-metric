@@ -135,7 +135,9 @@ ffmpeg: <status>, ssim: <status>, vmaf: <status>
 
 ### Выбор backend для VMAF
 
-По умолчанию VMAF работает в автоматическом режиме: утилита проверяет локальный FFmpeg, пробует `libvmaf_cuda`, если CUDA backend доступен, и откатывается на CPU-фильтр `libvmaf`, если CUDA backend недоступен или расчёт завершается ошибкой.
+По умолчанию VMAF работает в автоматическом режиме: утилита проверяет локальный FFmpeg, пробует `libvmaf_cuda` только для совместимых 8-битных входов `yuv420p`, и откатывается на CPU-фильтр `libvmaf`, если CUDA backend недоступен, входной формат несовместим или расчёт завершается ошибкой.
+
+CUDA backend используется только для расчёта самой метрики VMAF. Декодирование входных видео по умолчанию остаётся CPU-декодированием, после чего кадры загружаются в CUDA через `hwupload_cuda`. CUDA не используется для 10-битных, 4:2:2, HDR и других non-`yuv420p` входов, потому что для них потребовалось бы преобразование кадра перед метрикой, а это меняет интерпретацию результата. Аппаратное декодирование не включается автоматически и может рассматриваться только как отдельный явный performance-режим.
 
 Режим можно переопределить переменной окружения:
 
@@ -146,7 +148,7 @@ VIDEO_METRIC_VMAF_BACKEND=auto ./video_metric -o original.mkv -t test.mp4 -v
 # Только CPU libvmaf
 VIDEO_METRIC_VMAF_BACKEND=cpu ./video_metric -o original.mkv -t test.mp4 -v
 
-# Только CUDA libvmaf_cuda, без CPU fallback
+# Запросить CUDA libvmaf_cuda; несовместимые входы всё равно пойдут через CPU
 VIDEO_METRIC_VMAF_BACKEND=cuda ./video_metric -o original.mkv -t test.mp4 -v
 ```
 
@@ -218,7 +220,9 @@ VIDEO_METRIC_VMAF_BACKEND=cuda ./video_metric -o original.mkv -t test.mp4 -v
 
 **Метод:** FFmpeg фильтр `libvmaf_cuda` или `libvmaf` с XML выводом.
 
-В автоматическом режиме утилита сначала пытается использовать CUDA backend:
+В автоматическом режиме утилита сначала пытается использовать CUDA backend, если оба входных видео имеют пиксельный формат `yuv420p`:
+
+CUDA-команда не включает `-hwaccel`: декодирование выполняется на CPU, а CUDA применяется после `hwupload_cuda` только для вычисления VMAF.
 
 ```bash
 ./ffmpeg -i "<original>" -i "<test>" \
