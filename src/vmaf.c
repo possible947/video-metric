@@ -20,12 +20,17 @@
 #include <string.h>
 #include <errno.h>
 #include <limits.h>
-#include <unistd.h>
 #include <math.h>
 #include <ctype.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+
+#ifdef _WIN32
+#   include <windows.h>
+#else
+#   include <unistd.h>
+#endif
 
 #include "path_util.h"
 #include "vmaf.h"
@@ -85,6 +90,19 @@ static void print_progress_bar(int percent)
     for (int i = 0; i < empty; i++) printf("-");
     printf(" ");
     fflush(stdout);
+}
+
+static int get_auto_thread_count(void)
+{
+#ifdef _WIN32
+    SYSTEM_INFO system_info;
+    GetSystemInfo(&system_info);
+    return system_info.dwNumberOfProcessors > 0
+        ? (int)system_info.dwNumberOfProcessors : 1;
+#else
+    long count = sysconf(_SC_NPROCESSORS_ONLN);
+    return (count > 0 && count <= INT_MAX) ? (int)count : 1;
+#endif
 }
 
 /* ------------------------------------------------------------------ */
@@ -228,8 +246,8 @@ int compute_vmaf(const char *orig,
     escape_path(test,       esc_test,  sizeof(esc_test));
     escape_path(model_path, esc_model, sizeof(esc_model));
 
-    /* Normalize threads for libvmaf */
-    int vmaf_threads = (threads > 0) ? threads : 1;
+    /* libvmaf treats n_threads=0 as serial, so choose available CPUs. */
+    int vmaf_threads = (threads > 0) ? threads : get_auto_thread_count();
 
     /* Build ffmpeg command */
     char cmd[4096];

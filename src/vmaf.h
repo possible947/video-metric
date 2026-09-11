@@ -10,7 +10,7 @@
  * @param orig        Path to the reference (original) video.
  * @param test        Path to the distorted (test) video.
  * @param model_path  Path to the VMAF model JSON file.
- * @param threads     Number of threads for libvmaf (n_threads). 0 = default 1.
+ * @param threads     Number of threads for libvmaf (n_threads). 0 = detect CPUs.
  * @param json_path   Output buffer for the log file path ("vmaf.json").
  * @param json_bufsize Size of the json_path buffer.
  * @param stats       Output structure for min, max, mean VMAF scores.

@@ -185,8 +185,8 @@ int compute_ssim(const char *orig, const char *test, int threads,
     escape_path(orig, esc_orig, sizeof(esc_orig));
     escape_path(test, esc_test, sizeof(esc_test));
 
-    /* Normalize threads */
-    int ssim_threads = (threads > 0) ? threads : 1;
+    /* A zero value lets FFmpeg select its worker thread count. */
+    int ssim_threads = (threads > 0) ? threads : 0;
 
     /* Create temp stats file */
     const char *stats_file = "ssim_stats_temp.log";
