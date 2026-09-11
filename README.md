@@ -128,10 +128,29 @@ ffmpeg: <status>, ssim: <status>, vmaf: <status>
 ## 4. Требования к локальному FFmpeg
 
 - **Путь** – бинарник `ffmpeg` должен находиться в том же каталоге, что и `video_metric`
-- **Версия** – любой FFmpeg, поддерживающий фильтры `ssim` и `libvmaf`
+- **Версия** – любой FFmpeg, поддерживающий фильтры `ssim` и `libvmaf`; для GPU-ускоренного VMAF дополнительно нужен фильтр `libvmaf_cuda` и рабочий CUDA runtime
 - **Потоки** – при расчёте SSIM используется `-threads <N>`, при VMAF – `n_threads=<N>`
 - **Автоматический режим** – если параметр `-n` не указан или равен `0`, SSIM передаёт `-threads 0` в FFmpeg, а VMAF и MS-SSIM определяют число доступных CPU и используют его.
 - **VMAF и память** – используемая сборка FFmpeg/libvmaf должна содержать исправление утечки памяти. Программа не устанавливает искусственный лимит памяти для VMAF и использует память, необходимую FFmpeg.
+
+### Выбор backend для VMAF
+
+По умолчанию VMAF работает в автоматическом режиме: утилита проверяет локальный FFmpeg, пробует `libvmaf_cuda`, если CUDA backend доступен, и откатывается на CPU-фильтр `libvmaf`, если CUDA backend недоступен или расчёт завершается ошибкой.
+
+Режим можно переопределить переменной окружения:
+
+```bash
+# Автоматический режим: CUDA при возможности, иначе CPU
+VIDEO_METRIC_VMAF_BACKEND=auto ./video_metric -o original.mkv -t test.mp4 -v
+
+# Только CPU libvmaf
+VIDEO_METRIC_VMAF_BACKEND=cpu ./video_metric -o original.mkv -t test.mp4 -v
+
+# Только CUDA libvmaf_cuda, без CPU fallback
+VIDEO_METRIC_VMAF_BACKEND=cuda ./video_metric -o original.mkv -t test.mp4 -v
+```
+
+Если переменная не задана, используется `auto`. Проверка выполняется для bundled FFmpeg, который используется метрикой VMAF, а не для системного `ffmpeg` из `PATH`.
 
 **Для MS-SSIM** FFmpeg используется только для декодирования через pipe (не требуется специальный фильтр).
 
@@ -141,7 +160,7 @@ ffmpeg: <status>, ssim: <status>, vmaf: <status>
 
 - `model/vmaf_v0.6.1.json` – модель для HD (1080p)
 - `model/vmaf_4k_v0.6.1.json` – модель для 4K (2160p)
-- При расчёте VMAF утилита выбирает модель в зависимости от флага `-r` (`4k` по умолчанию)
+- При расчёте VMAF утилита выбирает модель в зависимости от флага `-r` (`hd` по умолчанию)
 
 ---
 
@@ -197,9 +216,19 @@ ffmpeg: <status>, ssim: <status>, vmaf: <status>
 
 ### 7.3 VMAF
 
-**Метод:** FFmpeg фильтр `libvmaf` с XML выводом.
+**Метод:** FFmpeg фильтр `libvmaf_cuda` или `libvmaf` с XML выводом.
 
-Команда:
+В автоматическом режиме утилита сначала пытается использовать CUDA backend:
+
+```bash
+./ffmpeg -i "<original>" -i "<test>" \
+-filter_complex "[0:v]format=yuv420p,hwupload_cuda[dist];[1:v]format=yuv420p,hwupload_cuda[ref];[dist][ref]libvmaf_cuda=model=path=<model_path>:n_threads=0:log_path=vmaf.json" \
+-f null -
+```
+
+Если CUDA backend недоступен или расчёт завершается ошибкой, `auto` режим повторяет расчёт на CPU.
+
+CPU-команда:
 
 ```bash
 ./ffmpeg -i "<original>" -i "<test>" \

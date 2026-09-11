@@ -7,7 +7,7 @@
  *
  * Requirements:
  *  - Use ONLY local ffmpeg (./ffmpeg), no system ffmpeg from $PATH.
- *  - Use filter_complex "[0:v][1:v]libvmaf=...".
+ *  - Use filter_complex "[0:v][1:v]libvmaf=..." or CUDA libvmaf_cuda when available.
  *  - Read VMAF output from stderr (redirected to stdout via 2>&1).
  *  - Extract the numeric value after "VMAF score:".
  *  - Display progress bar during computation
@@ -105,6 +105,66 @@ static int get_auto_thread_count(void)
 #endif
 }
 
+typedef enum {
+    VMAF_BACKEND_AUTO = 0,
+    VMAF_BACKEND_CPU,
+    VMAF_BACKEND_CUDA
+} vmaf_backend_mode;
+
+static vmaf_backend_mode get_vmaf_backend_mode(void)
+{
+    const char *value = getenv("VIDEO_METRIC_VMAF_BACKEND");
+    if (!value || *value == '\0' || strcmp(value, "auto") == 0)
+        return VMAF_BACKEND_AUTO;
+    if (strcmp(value, "cpu") == 0)
+        return VMAF_BACKEND_CPU;
+    if (strcmp(value, "cuda") == 0)
+        return VMAF_BACKEND_CUDA;
+
+    fprintf(stderr,
+            "compute_vmaf: unknown VIDEO_METRIC_VMAF_BACKEND='%s', using auto\n",
+            value);
+    return VMAF_BACKEND_AUTO;
+}
+
+static int command_succeeded(int status)
+{
+    return status != -1 && WIFEXITED(status) && WEXITSTATUS(status) == 0;
+}
+
+static int cuda_vmaf_available(const char *ffmpeg, const char *esc_model)
+{
+    static int cached_available = -1;
+    if (cached_available != -1)
+        return cached_available;
+
+    char esc_ffmpeg[PATH_MAX];
+    escape_path(ffmpeg, esc_ffmpeg, sizeof(esc_ffmpeg));
+
+    char cmd[8192];
+    int n = snprintf(
+        cmd, sizeof(cmd),
+        "%s -hide_banner -loglevel error "
+        "-f lavfi -i testsrc2=s=176x144:d=0.04 "
+        "-f lavfi -i testsrc2=s=176x144:d=0.04 "
+        "-filter_complex \"[0:v]format=yuv420p,hwupload_cuda[dist];"
+        "[1:v]format=yuv420p,hwupload_cuda[ref];"
+        "[dist][ref]libvmaf_cuda=model=path=%s:log_path=vmaf_cuda_probe.xml\" "
+        "-frames:v 1 -f null - >/dev/null 2>&1",
+        esc_ffmpeg,
+        esc_model
+    );
+    if (n < 0 || (size_t)n >= sizeof(cmd)) {
+        cached_available = 0;
+        return cached_available;
+    }
+
+    remove("vmaf_cuda_probe.xml");
+    cached_available = command_succeeded(system(cmd));
+    remove("vmaf_cuda_probe.xml");
+    return cached_available;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Helper: parse VMAF JSON log file and extract statistics          */
 /* ------------------------------------------------------------------ */
@@ -193,82 +253,13 @@ static int parse_vmaf_json(const char *json_path, metric_stats *stats)
     return 0;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Compute VMAF                                                      */
-/* ------------------------------------------------------------------ */
-int compute_vmaf(const char *orig,
-                 const char *test,
-                 const char *model_path,
-                 int         threads,
-                 char       *json_path,
-                 size_t      json_bufsize,
-                 metric_stats *stats,
-                 metric_progress_cb progress_cb,
-                 void *cb_userdata)
+static int run_vmaf_command(const char *cmd,
+                            const char *json_path,
+                            double total_duration,
+                            metric_stats *stats,
+                            metric_progress_cb progress_cb,
+                            void *cb_userdata)
 {
-    if (!orig || !test || !model_path || !json_path || json_bufsize == 0 || !stats) {
-        fprintf(stderr, "compute_vmaf: invalid argument(s)\n");
-        return -1;
-    }
-
-    /* Initialize stats */
-    stats->min = INFINITY;
-    stats->max = -INFINITY;
-    stats->mean = NAN;
-
-    const char *ffmpeg = get_ffmpeg_path();
-    if (!ffmpeg) {
-        fprintf(stderr, "compute_vmaf: local ffmpeg not found\n");
-        return -1;
-    }
-
-    /* Get video duration for progress calculation */
-    double total_duration = get_video_duration(orig);
-    if (total_duration <= 0.0) {
-        total_duration = 0.0; /* If we can't get duration, just skip progress */
-    }
-
-    /* Expose fixed JSON log path to caller (per spec: used only as success check) */
-    const char *log_file = "vmaf.json";
-    if (strlen(log_file) >= json_bufsize) {
-        fprintf(stderr, "compute_vmaf: json_path buffer too small\n");
-        return -1;
-    }
-    strncpy(json_path, log_file, json_bufsize);
-    json_path[json_bufsize - 1] = '\0';
-
-    /* Escape paths */
-    char esc_orig[PATH_MAX];
-    char esc_test[PATH_MAX];
-    char esc_model[PATH_MAX];
-
-    escape_path(orig,       esc_orig,  sizeof(esc_orig));
-    escape_path(test,       esc_test,  sizeof(esc_test));
-    escape_path(model_path, esc_model, sizeof(esc_model));
-
-    /* libvmaf treats n_threads=0 as serial, so choose available CPUs. */
-    int vmaf_threads = (threads > 0) ? threads : get_auto_thread_count();
-
-    /* Build ffmpeg command */
-    char cmd[4096];
-    int n = snprintf(
-        cmd, sizeof(cmd),
-        "%s -i %s -i %s "
-        "-filter_complex \"[0:v][1:v]libvmaf=model=path=%s:n_threads=%d:log_path=%s\" "
-        "-f null - 2>&1",
-        ffmpeg,
-        esc_orig,
-        esc_test,
-        esc_model,
-        vmaf_threads,
-        json_path
-    );
-
-    if (n < 0 || (size_t)n >= sizeof(cmd)) {
-        fprintf(stderr, "compute_vmaf: command buffer overflow\n");
-        return -1;
-    }
-
     /* Fork and execute ffmpeg with pipe to read output */
     int pipefd[2];
     if (pipe(pipefd) == -1) {
@@ -340,7 +331,7 @@ int compute_vmaf(const char *orig,
     }
 
     /* Check process exit status */
-    if (status == -1 || !WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+    if (!command_succeeded(status)) {
         fprintf(stderr, "compute_vmaf: ffmpeg process failed\n");
         return -1;
     }
@@ -353,5 +344,129 @@ int compute_vmaf(const char *orig,
     }
 
     return 0;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Compute VMAF                                                      */
+/* ------------------------------------------------------------------ */
+int compute_vmaf(const char *orig,
+                 const char *test,
+                 const char *model_path,
+                 int         threads,
+                 char       *json_path,
+                 size_t      json_bufsize,
+                 metric_stats *stats,
+                 metric_progress_cb progress_cb,
+                 void *cb_userdata)
+{
+    if (!orig || !test || !model_path || !json_path || json_bufsize == 0 || !stats) {
+        fprintf(stderr, "compute_vmaf: invalid argument(s)\n");
+        return -1;
+    }
+
+    /* Initialize stats */
+    stats->min = INFINITY;
+    stats->max = -INFINITY;
+    stats->mean = NAN;
+
+    const char *ffmpeg = get_ffmpeg_path();
+    if (!ffmpeg) {
+        fprintf(stderr, "compute_vmaf: local ffmpeg not found\n");
+        return -1;
+    }
+
+    /* Get video duration for progress calculation */
+    double total_duration = get_video_duration(orig);
+    if (total_duration <= 0.0) {
+        total_duration = 0.0; /* If we can't get duration, just skip progress */
+    }
+
+    /* Expose fixed JSON log path to caller (per spec: used only as success check) */
+    const char *log_file = "vmaf.json";
+    if (strlen(log_file) >= json_bufsize) {
+        fprintf(stderr, "compute_vmaf: json_path buffer too small\n");
+        return -1;
+    }
+    strncpy(json_path, log_file, json_bufsize);
+    json_path[json_bufsize - 1] = '\0';
+
+    /* Escape paths */
+    char esc_ffmpeg[PATH_MAX];
+    char esc_orig[PATH_MAX];
+    char esc_test[PATH_MAX];
+    char esc_model[PATH_MAX];
+
+    escape_path(ffmpeg,      esc_ffmpeg, sizeof(esc_ffmpeg));
+    escape_path(orig,       esc_orig,  sizeof(esc_orig));
+    escape_path(test,       esc_test,  sizeof(esc_test));
+    escape_path(model_path, esc_model, sizeof(esc_model));
+
+    /* libvmaf treats n_threads=0 as serial, so choose available CPUs. */
+    int vmaf_threads = (threads > 0) ? threads : get_auto_thread_count();
+
+    vmaf_backend_mode backend_mode = get_vmaf_backend_mode();
+
+    /* Build ffmpeg command */
+    char cmd[8192];
+    int n = snprintf(
+        cmd, sizeof(cmd),
+        "%s -i %s -i %s "
+        "-filter_complex \"[0:v][1:v]libvmaf=model=path=%s:n_threads=%d:log_path=%s\" "
+        "-f null - 2>&1",
+        esc_ffmpeg,
+        esc_orig,
+        esc_test,
+        esc_model,
+        vmaf_threads,
+        json_path
+    );
+
+    if (n < 0 || (size_t)n >= sizeof(cmd)) {
+        fprintf(stderr, "compute_vmaf: command buffer overflow\n");
+        return -1;
+    }
+
+    if (backend_mode != VMAF_BACKEND_CPU && cuda_vmaf_available(ffmpeg, esc_model)) {
+        char cuda_cmd[8192];
+        int cuda_n = snprintf(
+            cuda_cmd, sizeof(cuda_cmd),
+            "%s -i %s -i %s "
+            "-filter_complex \"[0:v]format=yuv420p,hwupload_cuda[dist];"
+            "[1:v]format=yuv420p,hwupload_cuda[ref];"
+            "[dist][ref]libvmaf_cuda=model=path=%s:n_threads=0:log_path=%s\" "
+            "-f null - 2>&1",
+            esc_ffmpeg,
+            esc_orig,
+            esc_test,
+            esc_model,
+            json_path
+        );
+        if (cuda_n < 0 || (size_t)cuda_n >= sizeof(cuda_cmd)) {
+            fprintf(stderr, "compute_vmaf: CUDA command buffer overflow\n");
+            if (backend_mode == VMAF_BACKEND_CUDA)
+                return -1;
+        } else {
+            remove(json_path);
+            if (run_vmaf_command(cuda_cmd, json_path, total_duration, stats,
+                                 progress_cb, cb_userdata) == 0) {
+                fprintf(stderr, "compute_vmaf: used CUDA VMAF backend\n");
+                return 0;
+            }
+
+            if (backend_mode == VMAF_BACKEND_CUDA) {
+                fprintf(stderr, "compute_vmaf: CUDA VMAF backend failed\n");
+                return -1;
+            }
+            fprintf(stderr,
+                    "compute_vmaf: CUDA VMAF failed, falling back to CPU VMAF\n");
+        }
+    } else if (backend_mode == VMAF_BACKEND_CUDA) {
+        fprintf(stderr, "compute_vmaf: CUDA VMAF backend is not available\n");
+        return -1;
+    }
+
+    remove(json_path);
+    return run_vmaf_command(cmd, json_path, total_duration, stats,
+                            progress_cb, cb_userdata);
 }
 
